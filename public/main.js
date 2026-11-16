@@ -192,6 +192,16 @@ async function doSearch() {
   }
 }
 
+// 用户手册 3.4: "在顶部检索框输入关键词…实时列出命中文档" — results must
+// follow the keystrokes, not only the Go button. The debounce keeps a typing
+// burst from firing an FTS query per keystroke; clearing the box restores the
+// full list (doSearch handles the empty query).
+let searchTimer = null;
+function scheduleSearch() {
+  clearTimeout(searchTimer);
+  searchTimer = setTimeout(doSearch, 250);
+}
+
 // ---------- export / import (.kb) ----------
 
 // Download name embeds the export/sync time so restored backups are
@@ -437,6 +447,7 @@ function bind() {
   $('#btn-lock').addEventListener('click', lock);
   $('#btn-delete').addEventListener('click', removeDoc);
   $('#btn-search').addEventListener('click', doSearch);
+  $('#search-term').addEventListener('input', scheduleSearch);
   $('#btn-export').addEventListener('click', exportKBFile);
   $('#btn-sync-out').addEventListener('click', syncOutFile);
   $('#btn-preview').addEventListener('click', togglePreview);

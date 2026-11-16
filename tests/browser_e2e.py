@@ -387,6 +387,18 @@ def main():
         # ---- AC5: FTS search finds the doc
         search = driver.find_element(By.ID, "search-term")
         search.send_keys("oscar")
+        # 用户手册 3.4: "实时列出命中文档" — typing alone (no Go click) must
+        # already narrow the list after the input debounce fires.
+        time.sleep(1.5)
+        rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("AC5: typing in the box searches live (no Go click)",
+              any(KNOWN_TITLE in (r.text or "") for r in rows), [r.text for r in rows])
+        search.clear()
+        time.sleep(1.0)
+        rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("AC5: clearing the box restores the full doc list",
+              any(KNOWN_TITLE in (r.text or "") for r in rows), [r.text for r in rows])
+        search.send_keys("oscar")
         driver.find_element(By.ID, "btn-search").click()
         time.sleep(1.5)
         rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
