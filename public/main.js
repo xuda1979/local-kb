@@ -191,6 +191,14 @@ async function doSearch() {
 
 // ---------- export / import (.kb) ----------
 
+// Download name embeds the export/sync time so restored backups are
+// distinguishable (用户手册 3.6: "文件名含导出时间"). Format uses only
+// filesystem-safe characters: local-kb-backup-2026-11-16-12-34-56.kb
+function stampedName(base, ext) {
+  const ts = new Date().toISOString().replace(/[:T]/g, '-').slice(0, 19);
+  return base + '-' + ts + '.' + ext;
+}
+
 async function exportKBFile() {
   if (!state.store) return;
   const all = await state.store.db.listDocs();
@@ -203,7 +211,7 @@ async function exportKBFile() {
   const blob = new Blob([serializeKB(kb)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'local-kb-backup.kb';
+  a.download = stampedName('local-kb-backup', 'kb');
   a.click();
   URL.revokeObjectURL(a.href);
   log('Exported .kb backup (ciphertext only).');
@@ -236,7 +244,7 @@ async function syncOutFile() {
   const blob = new Blob([serializeTape(tape)], { type: 'application/json' });
   const a = document.createElement('a');
   a.href = URL.createObjectURL(blob);
-  a.download = 'local-kb-sync.kbsync';
+  a.download = stampedName('local-kb-sync', 'kbsync');
   a.click();
   URL.revokeObjectURL(a.href);
   log('Wrote sync tape (' + tape.entries.length + ' entries, ciphertext only). Carry it to another machine and "Sync in".');
