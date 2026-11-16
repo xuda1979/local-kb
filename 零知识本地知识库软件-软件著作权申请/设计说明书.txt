@@ -230,8 +230,9 @@ server/：
   · exportKB(params, docRows) → {format:'local-kb', version, params, docs}
   · serializeKB → JSON 字符串 / parseKB 返回 {params, docs}
   · deserializeKB → 对象
-  · importKB(adapter, parsed)：校验工作区名一致（不同工作区拒绝导入，
-    防止孤儿文档），幂等（已存在同步 DEK 的文档跳过），批量写入
+  · importKB(adapter, parsed)：校验工作区盐值一致（盐不同则工作区密钥
+    必然不同，拒绝导入以防孤儿文档），幂等（已存在同步 DEK 的文档
+    跳过），批量写入
 
 3.6  Re-Key 模块（rekey.js）详细设计
 
@@ -253,7 +254,7 @@ server/：
     deleted:true 条目；若文档已重建则丢弃过期墓碑（防争用复活）
   · syncfile.js：buildTape → serializeTape(.kbsync 文本) →
     parseTape（校验格式/版本/工作区标识）→ assertSameWorkspace（工作区
-    名+盐鉴权，拒绝跨工作区磁带）→ applyTapeFile
+    盐鉴权，拒绝跨工作区磁带）→ applyTapeFile
 
 3.8  Markdown 编辑与渲染（public/markdown.js + factory.js）详细设计
 
