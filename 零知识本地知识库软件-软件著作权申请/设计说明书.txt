@@ -229,13 +229,16 @@ server/：
 
 3.5  备份模块（bak.js）详细设计
 
-  · exportKB(params, docRows) → {format:'local-kb', version, params, docs}
-  · serializeKB → JSON 字符串 / parseKB 返回 {params, docs}
-  · deserializeKB → 对象
-  · importKB(adapter, parsed)：校验工作区盐值一致（盐不同则工作区密钥
+  · exportKB(params, docRows) → KB 对象：{app:'local-kb', format:1,
+    exportedAt, workspace:{name,version,salt,iterations,verifier},
+    documents:[{id,dekIv,dekData,iv,data,createdAt,updatedAt}]}
+  · serializeKB(kb) → JSON 文本字节（Uint8Array，格式化缩进）
+  · deserializeKB(buf) → 反序列化为 KB 对象（非法 .kb / 非 local-kb
+    格式抛错），供 importKB 消费
+  · importKB(adapter, kb)：校验工作区盐值一致（盐不同则工作区密钥
     必然不同，拒绝导入以防孤儿文档），幂等（目标库已存在同 ID 文档
     跳过），墓碑中的已删除文档亦跳过（旧备份不复活已删除文档），
-    批量写入
+    批量写入并返回 {params, imported, skipped, duplicate}
 
 3.6  Re-Key 模块（rekey.js）详细设计
 
