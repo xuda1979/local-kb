@@ -289,8 +289,11 @@ server/：
     meta 三个 object store；FTS 为内存 Map 结构，与 SQLite 的
     ftsPut/ftsDelete/ftsSearch 语义一致
   · main.js：状态机（锁定/解锁）管理视图切换；markDirty/clearDirty
-    未保存提醒；Ctrl/Cmd+S 保存；导出/导入 .kb、同步引出/引入 .kbsync、
-    修改主密码等交互均通过 store 层完成，全程密文流
+    未保存提醒；Ctrl/Cmd+S 保存；文档增删改查经 DocStore 完成
+    （store.create/edit/delete/get/list/search）；导出/导入 .kb、同步
+    引出/引入 .kbsync、修改主密码等交互由 main.js 直接装配 bak.js /
+    syncfile.js / rekey.js 并作用于存储适配器接口（经 state.store.db 的
+    listDocs/getDoc/putDoc/deleteDoc/listTombstones 等），全程密文流
 
 3.10 可靠性、安全与容错设计
 
