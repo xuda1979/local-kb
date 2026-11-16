@@ -47,6 +47,43 @@ export function renderInline(text) {
   return out;
 }
 
+// Split a raw table row into cells honoring backslash-escaped pipes:
+// `\|` is a literal pipe inside the cell, never a cell separator
+// (用户手册 5.1 故障 7). A pipe is structural only when it is not preceded
+// by an unmatched backslash; `\\` pairs collapse to one literal backslash,
+// so `\\|` is an escaped backslash followed by a real cell separator.
+// A leading `|` at position 0 is always structural; a trailing structural
+// `|` closes the row and does not produce an empty trailing cell.
+function splitRowCells(row) {
+  const r = row.trim();
+  const cells = [];
+  let cur = '';
+  let back = 0; // 1 while the previous char was an unmatched backslash
+  let i = r.startsWith('|') ? 1 : 0;
+  for (; i < r.length; i++) {
+    const ch = r[i];
+    if (back === 1) {
+      if (ch === '\\') cur += '\\';
+      else if (ch === '|') cur += '|';
+      else cur += '\\' + ch;
+      back = 0;
+    } else if (ch === '\\') {
+      back = 1;
+    } else if (ch === '|') {
+      cells.push(cur);
+      cur = '';
+    } else {
+      cur += ch;
+    }
+  }
+  let bs = 0;
+  let k = r.length - 2;
+  while (k >= 0 && r[k] === '\\') { bs++; k--; }
+  const trailingStructural = r[r.length - 1] === '|' && bs % 2 === 0;
+  if (!trailingStructural) cells.push(cur + (back === 1 ? '\\' : ''));
+  return cells;
+}
+
 export function renderMarkdown(src) {
   const lines = String(src == null ? '' : src).replace(/\r\n/g, '\n').split('\n');
   const html = [];
@@ -161,11 +198,7 @@ export function renderMarkdown(src) {
         // a lone separator before any header row — skip, nothing to render
         continue;
       }
-      const cells = line
-        .replace(/^\s*\|/, '')
-        .replace(/\|\s*$/, '')
-        .split('|')
-        .map((c) => renderInline(c.trim()));
+      const cells = splitRowCells(line).map((c) => renderInline(c.trim()));
       if (!inTable) {
         inTable = true;
         tableRows = [];

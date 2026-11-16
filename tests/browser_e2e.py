@@ -310,7 +310,9 @@ def main():
 
         # ---- table blocks: pipe rows round-trip editor -> encrypted store
         area = driver.find_element(By.ID, "editor-area")
-        area.send_keys("\n\n| city | country |\n| --- | --- |\n| Kyoto | Japan |")
+        # Row 4 uses an escaped pipe inside a cell (用户手册 5.1 故障 7):
+        # `\|` must stay in-cell and round-trip the encrypted store.
+        area.send_keys("\n\n| city | country |\n| --- | --- |\n| Kyoto | Japan |\n| Osaka \\| OSK | Japan |")
         driver.find_element(By.ID, "btn-save").click()
         time.sleep(1.2)
         driver.find_element(By.ID, "btn-preview").click()
@@ -320,6 +322,9 @@ def main():
         check("table block previews as <table>",
               "<table>" in inner and "<th>city</th>" in inner and "<td>Kyoto</td>" in inner,
               inner[:200])
+        check("table block escaped pipe stays one cell",
+              "<td>Osaka | OSK</td>" in inner and "\\|" not in inner and "<td>Osaka \\</td>" not in inner,
+              inner[:300])
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.4)
         # reload the doc: blocks -> markdown must keep the pipe rows after the
@@ -336,10 +341,12 @@ def main():
         snippet = driver.find_element(By.ID, "editor-area").get_attribute("value")
         check("table round-trips from encrypted store",
               "| Kyoto | Japan |" in snippet, snippet[-300:])
+        check("table escaped pipe round-trips from encrypted store",
+              "Osaka \\| OSK" in snippet, snippet[-300:])
 
         # ---- AC2: IndexedDB holds no plaintext
         dump = flatten_dump(get_db_dump(driver))
-        for needle in [KNOWN_TITLE, "oscar-7", "48.8584N", "deflector", "Project Snowstorm", "Kyoto"]:
+        for needle in [KNOWN_TITLE, "oscar-7", "48.8584N", "deflector", "Project Snowstorm", "Kyoto", "Osaka"]:
             check(f"AC2: no plaintext ('{needle}') in IndexedDB", needle not in dump)
         docs_json = driver.execute_async_script("""
           const cb = arguments[arguments.length - 1];

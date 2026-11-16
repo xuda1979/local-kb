@@ -62,6 +62,37 @@ test('table renders header and rows', () => {
   assert.ok(out.includes('</table>'));
 });
 
+test('backslash-escaped pipe stays in one cell and renders literal', () => {
+  // 用户手册 5.1 故障 7: a cell's literal pipe is written \| and must not
+  // split the cell or leave the backslash behind.
+  const md = '| a \\| b | c |\n| --- | --- |\n| 1 | 2 |';
+  const out = renderMarkdown(md);
+  assert.ok(out.includes('<th>a | b</th>'), 'cell keeps \'a | b\' in one header cell');
+  assert.ok(out.includes('<th>c</th>'), 'escaping consumed, next cell intact');
+  assert.ok(out.includes('<td>1</td>') && out.includes('<td>2</td>'));
+  assert.ok(!out.includes('\\'), 'no backslash survives the render');
+  assert.equal((out.match(/<th>/g) || []).length, 2, 'exactly two header cells');
+});
+
+test('backslash-pair before a pipe is a separator, not an escape', () => {
+  // `\\` collapses to one literal backslash; that pipe then splits cells.
+  const out = renderMarkdown('| a \\\\| b |\n| --- | --- |');
+  assert.ok(out.includes('<th>a \\</th>'), 'one literal backslash stays');
+  assert.ok(out.includes('<th>b</th>'), 'trailing pipe still splits');
+});
+
+test('escaped pipe at row end does not create an empty last cell', () => {
+  const out = renderMarkdown('| a | b \\|');
+  assert.equal((out.match(/<th>/g) || []).length, 2, 'two cells, not three');
+  assert.ok(out.includes('<th>a</th>') && out.includes('<th>b |</th>'));
+});
+
+test('escaped pipe stays XSS-safe inside a table cell', () => {
+  const out = renderMarkdown('| <script>x\\|y</script> | unsafe |');
+  assert.ok(!out.includes('<script>'), 'raw HTML remains inert');
+  assert.ok(out.includes('&lt;script&gt;x|y&lt;/script&gt;'));
+});
+
 test('markdown of all block types stays balanced', () => {
   const md = '# T\n\npara with **bold**\n\n> quote\n\n```\ncode\n```\n\n- li1\n- li2\n\n---\n\ntable:\n\n| x |\n|---|\n| y |';
   const out = renderMarkdown(md);
