@@ -138,6 +138,9 @@ async function saveDoc() {
 }
 
 async function newDoc() {
+  // 用户手册 3.3: "未保存的修改在切换文档或离开页面时会收到提醒" — starting a
+  // fresh doc discards the current one, so dirty edits must not go silently.
+  if (state.dirty && !confirm('Discard unsaved changes to ' + (state.current.title || 'this doc') + ' before creating a new one?')) return;
   const id = uuid();
   const title = 'Untitled ' + new Date().toLocaleTimeString();
   const blocks = [{ type: 'paragraph', text: '' }];

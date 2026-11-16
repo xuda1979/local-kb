@@ -308,6 +308,25 @@ def main():
         check("preview toggle returns to editor",
               driver.find_element(By.ID, "editor-area").is_displayed())
 
+        # ---- P1 editor: starting a new doc prompts when edits are unsaved
+        # (用户手册 3.3: "未保存的修改在切换文档或离开页面时会收到提醒"). The
+        # editor above still holds an unsaved edit (the MD-preview text), so
+        # clicking New doc must confirm — dismissing keeps the document.
+        driver.find_element(By.ID, "btn-new").click()
+        time.sleep(0.6)
+        alert = driver.switch_to.alert
+        check("new doc prompts to discard unsaved edits", True)
+        alert.dismiss()
+        time.sleep(0.3)
+        title_val = driver.find_element(By.ID, "editor-title").get_attribute("value")
+        area_val = driver.find_element(By.ID, "editor-area").get_attribute("value")
+        check("new-doc prompt: dismissing keeps the unsaved document",
+              KNOWN_TITLE in title_val and "MD Preview Check" in area_val,
+              (title_val, area_val[-120:]))
+        check("new-doc prompt: no throwaway doc was created",
+              not any("Untitled" in (r.text or "") for r in
+                      driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")))
+
         # ---- table blocks: pipe rows round-trip editor -> encrypted store
         area = driver.find_element(By.ID, "editor-area")
         # Row 4 uses an escaped pipe inside a cell (用户手册 5.1 故障 7):
