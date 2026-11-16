@@ -73,6 +73,51 @@ test('code regions are stable under re-emit + re-parse (no drift)', () => {
   assert.deepEqual(textToBlocks(blocksToMarkdown(blocks)), blocks);
 });
 
+test('heading levels #..###### round-trip losslessly (user manual 3.5)', () => {
+  const text = [
+    '# One',
+    '## Two',
+    '### Three',
+    '#### Four',
+    '##### Five',
+    '###### Six',
+  ].join('\n');
+  const blocks = textToBlocks(text);
+  assert.equal(blocks.length, 6);
+  for (let i = 0; i < 6; i++) {
+    const hashes = '#'.repeat(i + 1);
+    assert.equal(blocks[i].type, 'heading');
+    assert.deepEqual(blocks[i], { type: 'heading', text: hashes + ' ' + ['One', 'Two', 'Three', 'Four', 'Five', 'Six'][i] }, 'level ' + (i + 1) + ' keeps its marker');
+  }
+  // save -> reload keeps every level, not just #
+  assert.equal(blocksToMarkdown(blocks), text);
+  assert.deepEqual(textToBlocks(blocksToMarkdown(blocks)), blocks);
+});
+
+test('nested quotes (>>) keep their depth on round-trip', () => {
+  const blocks = textToBlocks('> outer\n>> nested\n> back');
+  assert.equal(blocks.length, 3);
+  assert.deepEqual(blocks[0], { type: 'quote', text: '> outer' });
+  assert.deepEqual(blocks[1], { type: 'quote', text: '>> nested' });
+  assert.deepEqual(blocks[2], { type: 'quote', text: '> back' });
+  assert.equal(blocksToMarkdown(blocks), '> outer\n>> nested\n> back');
+});
+
+test('legacy marker-less heading/quote blocks still re-emit their marker', () => {
+  // docs saved before the marker was stored verbatim carry bare text
+  const md = blocksToMarkdown([
+    { type: 'heading', text: 'Old Title' },
+    { type: 'quote', text: 'old cite' },
+  ]);
+  assert.equal(md, '# Old Title\n> old cite');
+  // already-markered text is never double-marked
+  const again = blocksToMarkdown([
+    { type: 'heading', text: '## Keeps Level' },
+    { type: 'quote', text: '>> deep' },
+  ]);
+  assert.equal(again, '## Keeps Level\n>> deep');
+});
+
 test('blocksToMarkdown reconstructs markdown from blocks', () => {
   const markdown = blocksToMarkdown([
     { type: 'heading', text: 'Title' },

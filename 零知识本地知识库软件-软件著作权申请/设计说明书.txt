@@ -149,7 +149,7 @@ server/：
   h) 改密：解锁成功后，遍历每个文档用旧工作区密钥解封 DEK → 用新工作区
      密钥重新封装 → 最后重建校验器并保存参数（原子收尾，旧密码即失效）。
 
-  工程源程序总行数（去除注释与空行）：2920 行（含注释与空行约 3756 行）。
+  工程源程序总行数（去除注释与空行）：2959 行（含注释与空行约 3806 行）。
 
 2.5  模块划分与接口关系
 
@@ -262,9 +262,11 @@ server/：
 
   · textToBlocks(text)：按行扫描；连续管道行（以 | 开头或含 |）合并为
     table 块（保留原文，含转义管道 \|）；# 开头为 heading、```/~~~ 为
-    code、> 为 quote、其余为 paragraph；段落间遇空行自动切块
-  · blocksToMarkdown(blocks)：heading→'# '+text、quote→'> '+text、
-    code→```\n...+```、table→原样输出；块间空行连接
+    code、> 为 quote、其余为 paragraph；heading/quote 行保留原始标记
+    （如 ###、> 的多级）逐字存储，段落间遇空行自动切块
+  · blocksToMarkdown(blocks)：heading/quote/code/table 按块内原文逐字
+    回显（旧文档缺失标记时按 # / > 兜底补全）；段落原样输出；块间
+    空行连接
   · renderMarkdown(md)：escapeHtml 先行转义，再按行/正则渲染：
     标题、水平线、围栏代码块、块引用、无序/有序列表、管道表格
     （safeHref 仅放行 http(s):/mailto:/#// 相对链接，javascript: 与

@@ -147,7 +147,7 @@ vendor/fake-indexeddb/          — vendored spec-compliant in-memory IDB
 
 ## Testing
 
-`npm test` runs 84 tests headlessly via `node --test`:
+`npm test` runs 87 tests headlessly via `node --test`:
 
 - **No-plaintext-on-disk**: after writing known strings (title, body text,
   code, master password), greps the raw SQLite bytes and IndexedDB records —

@@ -98,8 +98,11 @@ export function textToBlocks(text) {
       continue;
     }
     flushTable();
-    if (/^#{1,6}\s/.test(l)) blocks.push({ type: 'heading', text: l.replace(/^#{1,6}\s*/, '') });
-    else if (/^>\s?/.test(l)) blocks.push({ type: 'quote', text: l.replace(/^>\s?/, '') });
+    // Heading/quote blocks keep their raw marker line verbatim (levels like
+    // `###` and nested `>>` included), so they round-trip losslessly like
+    // code/table blocks do (user manual 3.5: 标题 # 一至六级).
+    if (/^#{1,6}\s/.test(l)) blocks.push({ type: 'heading', text: l });
+    else if (/^>\s?/.test(l)) blocks.push({ type: 'quote', text: l });
     else blocks.push({ type: 'paragraph', text: l });
     i++;
   }
@@ -114,9 +117,11 @@ export function blocksToMarkdown(blocks) {
       // they round-trip unchanged; every other block re-emits its own marker.
       switch (b.type) {
         case 'heading':
-          return '# ' + b.text;
+          // Legacy blocks (saved before the marker was stored verbatim) carry
+          // bare text — re-emit the marker so documents never silently flatten.
+          return b.text.startsWith('#') ? b.text : '# ' + b.text;
         case 'quote':
-          return '> ' + b.text;
+          return b.text.startsWith('>') ? b.text : '> ' + b.text;
         default:
           return b.text;
       }
