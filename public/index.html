@@ -111,6 +111,19 @@
     </div>
     <p class="muted">Encryption: PBKDF2-SHA256(310k) → workspace key (HKDF) → per-doc AES-256-GCM DEK
       wrapped by the workspace key. Disk/IndexedDB holds only ciphertext.</p>
+
+    <div class="card">
+      <h2>Change master password</h2>
+      <p class="muted">Re-keys the whole vault under a new password (same salt — backups and
+        sync peers keep working). Every document is re-wrapped before the old password stops
+        working, so an interruption leaves the vault unlocked, not lost.</p>
+      <div class="row" style="flex-wrap:wrap;">
+        <input type="password" id="rekey-current" placeholder="Current master password" autocomplete="current-password" style="flex:1; min-width:180px;" />
+        <input type="password" id="rekey-new" placeholder="New master password (8+ chars)" autocomplete="new-password" style="flex:1; min-width:180px;" />
+        <input type="password" id="rekey-confirm" placeholder="Repeat new password" autocomplete="new-password" style="flex:1; min-width:180px;" />
+        <button id="btn-rekey" class="secondary">Change password</button>
+      </div>
+    </div>
   </div>
 
   <div id="log"></div>

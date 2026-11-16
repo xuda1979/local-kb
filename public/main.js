@@ -6,6 +6,7 @@ import { openKb, createKb } from '../src/factory.js';
 import { exportKB, serializeKB, deserializeKB, importKB } from '../src/bak.js';
 import { buildTape, serializeTape, parseTape, applyTapeFile, assertSameWorkspace } from '../src/syncfile.js';
 import { textToBlocks, blocksToMarkdown } from '../src/factory.js';
+import { changeMasterPassword } from '../src/rekey.js';
 import { renderMarkdown } from './markdown.js';
 import { uuid } from '../src/util.js';
 
@@ -271,6 +272,41 @@ async function syncInFile(file) {
   log(res.applied + ' docs synced in, ' + res.skipped + ' skipped.');
 }
 
+// ---------- change master password (re-key) ----------
+
+async function changePassword() {
+  if (!state.store) return;
+  const current = $('#rekey-current').value;
+  const next = $('#rekey-new').value;
+  const confirmPw = $('#rekey-confirm').value;
+  if (!current) return log('Enter the current master password.', true);
+  if (next.length < 8) return log('New password must be at least 8 characters.', true);
+  if (next !== confirmPw) return log('New passwords do not match.', true);
+  if (next === current) return log('New password is the same as the current one.', true);
+  if (state.dirty && !confirm('The current document has unsaved changes. Re-key first?')) return;
+
+  const res = await changeMasterPassword(state.store.db, current, next);
+  if (!res.ok) {
+    if (res.error === 'wrong-master-password') return log('Current password is wrong — nothing changed.', true);
+    return log('Re-key failed: ' + res.error, true);
+  }
+  // The workspace key changed; re-open with the new password so store handles
+  // and the FTS index are derived from the current key.
+  sessionStorage.setItem('local-kb-pw', next);
+  const reopened = await openKb(state.store.db, next);
+  if (!reopened.ok) return log('Re-key done, but re-unlock with the new password failed.', true);
+  state.store = reopened.store;
+  state.params = reopened.params;
+  state.current = null;
+  await refreshDocList(state.store);
+  $('#editor-title').value = '';
+  $('#editor-area').value = '';
+  $('#rekey-current').value = '';
+  $('#rekey-new').value = '';
+  $('#rekey-confirm').value = '';
+  log('Master password changed: ' + res.rewrapped + ' document(s) re-wrapped. Old password is now inert.');
+}
+
 // ---------- boot ----------
 
 async function enterApp(store, params) {
@@ -313,6 +349,7 @@ function bind() {
   $('#btn-export').addEventListener('click', exportKBFile);
   $('#btn-sync-out').addEventListener('click', syncOutFile);
   $('#btn-preview').addEventListener('click', togglePreview);
+  $('#btn-rekey').addEventListener('click', changePassword);
   $('#import-file').addEventListener('change', (e) => {
     const f = e.target.files && e.target.files[0];
     if (f) importKBFile(f);

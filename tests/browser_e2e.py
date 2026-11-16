@@ -346,6 +346,45 @@ def main():
         ids_json = json.dumps(sync_obj.get("peerDocs", 0))
         check("M3: sync tape carried a doc (peer lists " + ids_json + ")", sync_obj.get("peerDocs", 0) >= 1)
 
+        # ---- re-key: change master password without losing the vault
+        # Save the dirty preview edits first so no unsaved-changes guard fires.
+        driver.find_element(By.ID, "btn-save").click()
+        time.sleep(1.2)
+        NEW_PW = "brand new master password 7381"
+        driver.find_element(By.ID, "rekey-current").send_keys("correct horse battery staple")
+        driver.find_element(By.ID, "rekey-new").send_keys(NEW_PW)
+        driver.find_element(By.ID, "rekey-confirm").send_keys(NEW_PW)
+        driver.find_element(By.ID, "btn-rekey").click()
+        time.sleep(2.5)
+        log = driver.find_element(By.ID, "log").text
+        check("re-key: password changed (log confirms)",
+              "Master password changed" in log and "re-wrapped" in log, log)
+
+        # old password must now be refused at the unlock gate
+        driver.refresh()
+        wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
+        pw = driver.find_element(By.ID, "pw")
+        pw.send_keys("correct horse battery staple")
+        driver.find_element(By.ID, "btn-unlock").click()
+        time.sleep(1.2)
+        log = driver.find_element(By.ID, "log").text
+        check("re-key: old master password now denied", "Wrong master password" in log, log)
+
+        # new password unlocks and the doc list still holds the known doc
+        pw.clear()
+        pw.send_keys(NEW_PW)
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+        docs = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("re-key: new password unlocks vault with docs intact",
+              any(KNOWN_TITLE in d.text for d in docs), [d.text for d in docs])
+
+        # IndexedDB must hold ciphertext only, with no new-password plaintext
+        dump = flatten_dump(get_db_dump(driver))
+        for needle in [NEW_PW, "correct horse battery staple"]:
+            check(f"re-key: no master password plaintext in IndexedDB ('{needle}')", needle not in dump)
+
         # ---- AC6: offline — assert page JS/import loads (no network fallback)
         # The page itself is a static module graph served from /public; language
         # server already covered by reloads above. Also verify demo serves offline

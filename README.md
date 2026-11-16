@@ -14,6 +14,8 @@ touches disk, so neither the backing store nor any server can read your notes.
   plane that converges two machines sharing a workspace (P3/M3).
 - **Markdown editor + preview**: dependency-free XSS-safe renderer; preview toggle
   and unsaved-changes guard in the demo UI.
+- **Change master password**: re-key the entire vault (every DEK re-wrapped)
+  without losing data; the old password stops working atomically at the end.
 
 ---
 
@@ -40,6 +42,9 @@ node server/demo.mjs
 7. **Sync out** writes a `.kbsync` file (ciphertext-only LWW tape); on a second
    machine sharing the same workspace password, **Sync in** that file to
    converge both doc sets — including deletes (tombstones carried in the tape).
+8. **Change master password**: enter current + new password (twice) in the
+   app view card — every document is re-wrapped under the new password, then
+   the old password stops working.
 
 > The demo is 100% offline-capable: all code ships as static files, the only
 > server is a trivial static file server.
@@ -116,6 +121,7 @@ src/
   store.js        document store: DEK wrap/unwrap, CRUD, search glue
   db.js           SQLite backend (node:sqlite) for headless Node
   bak.js          .kb export/import serialization
+  rekey.js        master-password rotation (re-key): re-wrap DEKs, rebuild verifier
   factory.js      high-level createKb/openKb wiring + markdown <-> blocks
   docmodel.js     Notion-like block model
   sync.js         ciphertext-only sync plane (P3/M3): tape export/merge/apply
@@ -124,7 +130,7 @@ src/
 tests/
   crypto, workspace, persistence, no-plaintext-on-disk, search,
   backup, dek-wrap, search-title, docmodel, idb.store, import-safety,
-  fts-hardening, sync, syncfile  (Node test runner)
+  fts-hardening, sync, syncfile, rekey  (Node test runner)
   browser_e2e.py  optional real-Firefox/geckodriver drive test
 public/
   index.html, main.js, markdown.js, idb.js   — offline web client
@@ -134,7 +140,7 @@ vendor/fake-indexeddb/          — vendored spec-compliant in-memory IDB
 
 ## Testing
 
-`npm test` runs 60 tests headlessly via `node --test`:
+`npm test` runs 65 tests headlessly via `node --test`:
 
 - **No-plaintext-on-disk**: after writing known strings (title, body text,
   code, master password), greps the raw SQLite bytes and IndexedDB records —
@@ -156,6 +162,11 @@ vendor/fake-indexeddb/          — vendored spec-compliant in-memory IDB
 - **Markdown**: structural output for every block type (headings, lists,
   tables, fenced code…), and XSS safety — escape-first throughout plus
   `javascript:`/`data:` link targets degraded to inert text.
+- **Re-key**: a wrong current password is refused with zero mutation; a
+  successful rotation re-wraps every DEK, leaves the old password inert and
+  the new one working with all documents intact; no plaintext (including the
+  passwords) ever touches disk — re-key is also stable across repeated
+  rotations.
 - The offline browser UI is exercised through the same store layer with
   `fake-indexeddb` (spec-compliant, no browser needed).
 

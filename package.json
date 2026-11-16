@@ -13,6 +13,7 @@
     "./store": "./src/store.js",
     "./db": "./src/db.js",
     "./bak": "./src/bak.js",
+    "./rekey": "./src/rekey.js",
     "./syncfile": "./src/syncfile.js",
     "./idb": "./public/idb.js"
   },
