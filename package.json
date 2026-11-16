@@ -1,0 +1,26 @@
+{
+  "name": "local-kb",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Zero-knowledge local-first knowledge base (AES-256-GCM, webcrypto)",
+  "engines": {
+    "node": ">=22"
+  },
+  "exports": {
+    ".": "./src/index.js",
+    "./crypto": "./src/crypto.js",
+    "./store": "./src/store.js",
+    "./db": "./src/db.js",
+    "./bak": "./src/bak.js",
+    "./idb": "./public/idb.js"
+  },
+  "scripts": {
+    "test": "node --test --test-concurrency=1 \"tests/**/*.test.mjs\"",
+    "verify": "npm test",
+    "demo": "node --enable-source-maps server/demo.mjs"
+  },
+  "devDependencies": {
+    "fake-indexeddb": "^6.2.8"
+  }
+}

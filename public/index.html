@@ -1,0 +1,114 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>Local KB · lock</title>
+  <style>
+    :root { color-scheme: dark; }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0; font-family: system-ui, sans-serif; background: #0f1115; color: #e6e8eb;
+    }
+    .view { display: none; max-width: 900px; margin: 0 auto; padding: 32px 16px; }
+    .card {
+      background: #1b1f27; border: 1px solid #2a303a; border-radius: 12px;
+      padding: 24px; margin-top: 24px;
+    }
+    h1, h2 { font-weight: 650; }
+    input[type=password], input[type=text], textarea {
+      width: 100%; background: #12161d; color: #e6e8eb; border: 1px solid #2a303a;
+      border-radius: 8px; padding: 10px 12px; margin: 8px 0 12px; font: inherit;
+    }
+    textarea#editor-area { min-height: 300px; font-family: ui-monospace, Menlo, monospace; }
+    button {
+      background: #3b71ca; color: #fff; border: 0; border-radius: 8px;
+      padding: 9px 16px; margin-right: 8px; cursor: pointer; font: inherit;
+    }
+    button.secondary { background: #2a303a; }
+    button.danger { background: #8a3b3b; }
+    .grid { display: grid; grid-template-columns: 280px 1fr; gap: 20px; }
+    #doc-list .doc-row {
+      padding: 8px 12px; border-radius: 8px; cursor: pointer; margin-bottom: 4px;
+      border: 1px solid transparent;
+    }
+    #doc-list .doc-row:hover { background: #232a35; }
+    #doc-list .doc-row.active { border-color: #3b71ca; background: #232a35; }
+    .muted { color: #8a94a3; font-size: 13px; }
+    #log { min-height: 1.4em; font-size: 13px; color: #8cc78a; margin-top: 12px; }
+    #log.error { color: #c78a8a; }
+    .row { display: flex; gap: 8px; align-items: center; }
+    #pw, #pw2 { max-width: 320px; }
+    #preview { background: #12161d; border: 1px solid #2a303a; border-radius: 8px; padding: 12px 16px; min-height: 300px; overflow-wrap: break-word; }
+    #preview h1, #preview h2, #preview h3 { margin: 0.5em 0 0.25em; }
+    #preview pre { background: #0c0f14; border: 1px solid #2a303a; border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
+    #preview code { font-family: ui-monospace, Menlo, monospace; }
+    #preview blockquote { margin: 0.5em 0; padding-left: 12px; border-left: 3px solid #3b71ca; color: #aab3c0; }
+    #preview table { border-collapse: collapse; margin: 8px 0; }
+    #preview th, #preview td { border: 1px solid #2a303a; padding: 4px 10px; }
+    #preview a { color: #7aa6e8; }
+  </style>
+</head>
+<body>
+  <div id="view-unlock" class="view">
+    <h1>Local KB</h1>
+    <p class="muted">Zero-knowledge, local-first knowledge base. Documents are encrypted
+      (AES-256-GCM) with password-derived keys before they ever touch disk; nothing is readable
+      without your master password. Runs 100% offline.</p>
+
+    <div class="card">
+      <h2>Unlock</h2>
+      <input type="password" id="pw" placeholder="Master password" autocomplete="current-password" />
+      <button id="btn-unlock">Unlock</button>
+    </div>
+
+    <div class="card">
+      <h2>Create a new workspace</h2>
+      <input type="password" id="pw2" placeholder="Choose master password (8+ chars)" autocomplete="new-password" />
+      <button id="btn-create">Create vault</button>
+      <p class="muted">Losing the master password means losing your data — it is never stored.</p>
+    </div>
+  </div>
+
+  <div id="view-app" class="view">
+    <div class="row" style="justify-content: space-between;">
+      <h1>Local KB</h1>
+      <div>
+        <button id="btn-new" class="secondary">New doc</button>
+        <button id="btn-export" class="secondary">Export .kb</button>
+        <label class="secondary" style="display:inline-block; cursor:pointer;
+          background:#2a303a; border-radius:8px; padding:9px 16px;">Import .kb
+          <input type="file" id="import-file" accept=".kb,application/json" style="display:none;" />
+        </label>
+      </div>
+    </div>
+
+    <div class="grid">
+      <aside>
+        <div class="row">
+          <input type="text" id="search-term" placeholder="Search…" />
+          <button id="btn-search" class="secondary" style="margin:0;">Go</button>
+        </div>
+        <div id="doc-list"></div>
+      </aside>
+      <section>
+        <input type="text" id="editor-title" placeholder="Document title" />
+        <div class="row" style="justify-content:space-between;">
+          <span id="doc-meta" class="muted"></span>
+          <div>
+            <button id="btn-save">Save</button>
+            <button id="btn-preview" class="secondary">Preview</button>
+            <button id="btn-delete" class="danger">Delete</button>
+          </div>
+        </div>
+        <textarea id="editor-area" placeholder="Markdown… `code`, **bold**, [link](url), `` ```js … ``` `"></textarea>
+        <div id="preview"></div></textarea>
+      </section>
+    </div>
+    <p class="muted">Encryption: PBKDF2-SHA256(310k) → workspace key (HKDF) → per-doc AES-256-GCM DEK
+      wrapped by the workspace key. Disk/IndexedDB holds only ciphertext.</p>
+  </div>
+
+  <div id="log"></div>
+  <script type="module" src="./main.js"></script>
+</body>
+</html>
