@@ -130,12 +130,16 @@ export async function localTape(adapter) {
     });
   }
   // Tombstoned docs that are no longer live become deleted:true entries. The
-  // LWW guard in applyTape keys on updatedAt only, so a tombstone must not be
-  // emittable while the doc is still live (it would republish stale ciphertext).
+  // LWW guard in applyTape keys on updatedAt only, so a tombstone must never
+  // be emitted while the doc is still live: if a doc was deleted and then
+  // re-created under the same id, the live entry above already carries its
+  // newer state, and a stale tombstone (with an earlier timestamp) could win a
+  // timestamp tie on a peer and wrongly delete the re-created doc.
   if (typeof adapter.listTombstones === 'function') {
     const tombstones = await adapter.listTombstones();
     for (const t of tombstones || []) {
       if (!t || t.updatedAt == null) continue;
+      if (live.has(t.id)) continue; // doc is live again — drop the stale tombstone
       entries.push({
         id: t.id,
         updatedAt: t.updatedAt,

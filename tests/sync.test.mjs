@@ -113,3 +113,27 @@ test('mergeTape ignores malformed entries', async () => {
   assert.equal(merged.length, 1);
   assert.equal(merged[0].id, 'x');
 });
+
+test('localTape drops the stale tombstone after a doc is deleted and re-created', async () => {
+  const path = tempDbPath();
+  const s = await openSeed(path, [], null);
+  await s.r.store.create('id1', 'First Life', [{ type: 'paragraph', text: 'v1' }]);
+  await s.r.store.delete('id1'); // records a tombstone
+  await s.r.store.create('id1', 'Second Life', [{ type: 'paragraph', text: 'v2' }]); // same id again
+
+  const tape = await localTape(s.b);
+  const id1 = tape.filter((e) => e.id === 'id1');
+  assert.equal(id1.length, 1, 'exactly one entry for the re-created doc');
+  assert.equal(id1[0].deleted, false, 'the live entry wins, the stale tombstone is not emitted');
+
+  // A peer that applies the tape must see the re-created doc, never deleted.
+  const dst = tempDbPath();
+  const peer = await openSeed(dst, [], s.params);
+  const res = await applyTape(tape, peer.b);
+  assert.ok(res.applied >= 1, 'peer applies the live entry');
+  const list = await peer.r.store.list();
+  assert.equal(list.length, 1, 'peer has exactly one doc');
+  assert.equal((await peer.r.store.get('id1')).title, 'Second Life');
+  s.b.close();
+  peer.b.close();
+});

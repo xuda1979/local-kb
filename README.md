@@ -141,7 +141,7 @@ vendor/fake-indexeddb/          — vendored spec-compliant in-memory IDB
 
 ## Testing
 
-`npm test` runs 70 tests headlessly via `node --test`:
+`npm test` runs 71 tests headlessly via `node --test`:
 
 - **No-plaintext-on-disk**: after writing known strings (title, body text,
   code, master password), greps the raw SQLite bytes and IndexedDB records —
@@ -158,7 +158,8 @@ vendor/fake-indexeddb/          — vendored spec-compliant in-memory IDB
   would orphan existing documents); re-import is idempotent.
 - **Sync (P3)**: tapes carry only ciphertext; two stores sharing a workspace
   converge after exchanging tapes; deletes propagate as tombstones (a newer
-  local doc is never clobbered by a stale tape, and a tape from a *different
+  local doc is never clobbered by a stale tape, a deleted-then-recreated doc
+  only ever leaves the live entry behind, and a tape from a *different
   workspace* is refused); re-applying a tape is a no-op.
 - **Markdown**: structural output for every block type (headings, lists,
   tables, fenced code…), and XSS safety — escape-first throughout plus
