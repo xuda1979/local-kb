@@ -196,7 +196,7 @@ server/：
     salt, iterations, verifier, workspaceKey}
   · unlockWorkspace(params, masterPassword)：
     由参数重新派生工作区密钥 → 解 verifier 比对 → 成功返回 workspaceKey，
-    失败返回 {ok:false, error:'wrong-password'}
+    失败（密码错误或判定失败）返回 {ok:false, error:'unlock-failed'}
 
 3.3  SQLite 存储后端（db.js）详细设计
 
