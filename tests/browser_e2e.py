@@ -314,6 +314,38 @@ def main():
               all(needle not in export_json for needle in
                   [KNOWN_TITLE, "oscar-7", "48.8584N", "Project Snowstorm"]))
 
+        # ---- M3 sync: build a .kbsync tape, apply it to a fresh peer, verify
+        # the peer converges and the carried tape is ciphertext-only.
+        sync_res = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { openKb } = await import('/src/factory.js');
+            const { buildTape, serializeTape, applyTapeFile } = await import('/src/syncfile.js');
+            const db = new IndexedDBBackend();
+            const r = await openKb(db, 'correct horse battery staple');
+            if (!r.ok) return cb({ error: 'unlock' });
+            const tape = await buildTape(r.params, db);
+            const txt = new TextDecoder().decode(serializeTape(tape));
+            // Fresh peer sharing the same workspace params.
+            const peer = new IndexedDBBackend('local-kb-peer');
+            await peer.saveParams(r.params);
+            const pr = await openKb(peer, 'correct horse battery staple');
+            if (!pr.ok) return cb({ error: 'peer-unlock' });
+            const res = await applyTapeFile(peer, tape);
+            const ids = (await peer.listDocs()).map((d) => d.id);
+            return cb({ tapeJson: txt, applied: res.applied, peerDocs: ids.length });
+          })().catch((e) => cb({ error: String(e) }));
+        """)
+        sync_obj = json.loads(json.dumps(sync_res))
+        check("M3: peer converged via sync tape", sync_obj.get("applied", -1) > 0 and sync_obj.get("peerDocs", 0) > 0)
+
+        tape_json = sync_obj.get("tapeJson") or ""
+        check("M3: sync tape is ciphertext (no plaintext)",
+              all(x not in tape_json for x in [KNOWN_TITLE, "oscar-7", "48.8584N", "Project Snowstorm"]))
+        ids_json = json.dumps(sync_obj.get("peerDocs", 0))
+        check("M3: sync tape carried a doc (peer lists " + ids_json + ")", sync_obj.get("peerDocs", 0) >= 1)
+
         # ---- AC6: offline — assert page JS/import loads (no network fallback)
         # The page itself is a static module graph served from /public; language
         # server already covered by reloads above. Also verify demo serves offline

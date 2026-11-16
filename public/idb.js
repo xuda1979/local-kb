@@ -117,6 +117,23 @@ export class IndexedDBBackend {
     await this.idbDelete('docs', id);
   }
 
+  // Record a tombstone (non-secret updatedAt) so deletes propagate to peers
+  // via the sync tape (metadata store, same as the SQLite adapter).
+  async markDeleted(id, updatedAt) {
+    await this.idbPut('meta', { key: 'tombstone:' + id, value: updatedAt });
+  }
+  async delMeta(key) {
+    await this.idbDelete('meta', key);
+  }
+  async listTombstones() {
+    const all = await this.idbAll('meta');
+    const out = [];
+    for (const r of all || []) {
+      if (r.key && r.key.startsWith('tombstone:')) out.push({ id: r.key.slice(10), updatedAt: r.value });
+    }
+    return out;
+  }
+
   // ---------- FTS (in-memory) ----------
 
   async ftsPut(docId, text) {

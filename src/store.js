@@ -95,8 +95,15 @@ export class DocStore {
   }
 
   async delete(docId) {
+    const existing = await this.db.getDoc(docId);
     await this.db.deleteDoc(docId);
     await this.db.ftsDelete(docId);
+    // Record a tombstone with the deleted doc's last updatedAt (non-secret) so
+    // the delete propagates to peers through the sync tape; LWW on that
+    // timestamp decides, per docId, whether a peer resurrects the doc.
+    if (existing && typeof this.db.markDeleted === 'function') {
+      await this.db.markDeleted(docId, existing.updatedAt);
+    }
   }
 
   async list() {

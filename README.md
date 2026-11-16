@@ -10,6 +10,8 @@ touches disk, so neither the backing store nor any server can read your notes.
   + HKDF workspace namespacing (reuses the 01-passvault design).
 - **Search**: FTS5 over a local in-memory index (plaintext in RAM only).
 - **Portable backups**: `.kb` export/import for machine migration.
+- **Offline sync tape**: `.kbsync` ciphertext carry — a delete-aware LWW sync
+  plane that converges two machines sharing a workspace (P3/M3).
 - **Markdown editor + preview**: dependency-free XSS-safe renderer; preview toggle
   and unsaved-changes guard in the demo UI.
 
@@ -35,6 +37,9 @@ node server/demo.mjs
 5. Toggle **Preview** to render the markdown live; **Ctrl/Cmd+S** saves.
 6. **Export .kb** to download a ciphertext-only backup; **Import .kb** on
    another machine (or empty profile) to restore — using the same master password.
+7. **Sync out** writes a `.kbsync` file (ciphertext-only LWW tape); on a second
+   machine sharing the same workspace password, **Sync in** that file to
+   converge both doc sets — including deletes (tombstones carried in the tape).
 
 > The demo is 100% offline-capable: all code ships as static files, the only
 > server is a trivial static file server.
@@ -114,11 +119,12 @@ src/
   factory.js      high-level createKb/openKb wiring + markdown <-> blocks
   docmodel.js     Notion-like block model
   sync.js         ciphertext-only sync plane (P3/M3): tape export/merge/apply
+  syncfile.js     .kbsync file transport: build/serialize/parse/apply + workspace gate
   util.js         generators/helpers
 tests/
   crypto, workspace, persistence, no-plaintext-on-disk, search,
   backup, dek-wrap, search-title, docmodel, idb.store, import-safety,
-  fts-hardening, sync  (Node test runner)
+  fts-hardening, sync, syncfile  (Node test runner)
   browser_e2e.py  optional real-Firefox/geckodriver drive test
 public/
   index.html, main.js, markdown.js, idb.js   — offline web client
@@ -128,7 +134,7 @@ vendor/fake-indexeddb/          — vendored spec-compliant in-memory IDB
 
 ## Testing
 
-`npm test` runs 55 tests headlessly via `node --test`:
+`npm test` runs 60 tests headlessly via `node --test`:
 
 - **No-plaintext-on-disk**: after writing known strings (title, body text,
   code, master password), greps the raw SQLite bytes and IndexedDB records —
@@ -144,7 +150,9 @@ vendor/fake-indexeddb/          — vendored spec-compliant in-memory IDB
   backup from a *different workspace* over an existing vault is refused (it
   would orphan existing documents); re-import is idempotent.
 - **Sync (P3)**: tapes carry only ciphertext; two stores sharing a workspace
-  converge after exchanging tapes; re-applying a tape is a no-op.
+  converge after exchanging tapes; deletes propagate as tombstones (a newer
+  local doc is never clobbered by a stale tape, and a tape from a *different
+  workspace* is refused); re-applying a tape is a no-op.
 - **Markdown**: structural output for every block type (headings, lists,
   tables, fenced code…), and XSS safety — escape-first throughout plus
   `javascript:`/`data:` link targets degraded to inert text.
@@ -167,9 +175,11 @@ falls back to the snap's inner binary automatically.
 - The vendor/ directory pins `fake-indexeddb@6.2.8` (MIT) for hermetic tests
   because the sandbox npm reify step is unreliable; no runtime dependency.
 - M1 (encryption + editing + storage) and M2 (search + backup) are met; M3's
-  ciphertext oplog sync plane ships as `src/sync.js join` (a protocol-only
-  module: `localTape`/`mergeTape`/`applyTape`) — transport for hosted sync
-  remains an integration point, not an enabled service.
+  ciphertext sync plane ships as `src/sync.js` (`localTape`/`mergeTape`/
+  `applyTape`) plus a complete **file transport** (`src/syncfile.js`,
+  `.kbsync`): build, serialize, parse, apply, and a workspace-identity gate.
+  Hosted/networked sync is not part of this release — the file carry is the
+  offline-friendly transport the SPEC allows.
 
 ## License
 

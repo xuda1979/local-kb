@@ -136,6 +136,19 @@ export class SQLiteBackend {
       .run(key, value);
   }
 
+  async delMeta(key) {
+    this.db.prepare('DELETE FROM meta WHERE key = ?').run(key);
+  }
+
+  // Tombstones are stored in the meta table under the "tombstone:<docId>" key
+  // (value = the deleted doc's last updatedAt, the LWW timestamp).
+  async listTombstones() {
+    const rows = this.db
+      .prepare("SELECT key, value FROM meta WHERE key LIKE 'tombstone:%'")
+      .all();
+    return rows.map((r) => ({ id: r.key.slice('tombstone:'.length), updatedAt: r.value }));
+  }
+
   // ---------- docs ----------
 
   async listDocs() {
@@ -178,6 +191,12 @@ export class SQLiteBackend {
 
   async deleteDoc(id) {
     this.db.prepare('DELETE FROM docs WHERE id = ?').run(id);
+  }
+
+  // Record a tombstone (non-secret updatedAt timestamp) under
+  // "tombstone:<docId>" so a delete propagates to peers through sync.
+  async markDeleted(id, updatedAt) {
+    await this.setMeta('tombstone:' + id, updatedAt);
   }
 
   // ---------- FTS5 (in-memory, cleartext index) ----------

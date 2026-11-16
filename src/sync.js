@@ -37,50 +37,83 @@ export function mergeTape(a, b) {
   );
 }
 
-// Apply a tape to a local adapter. Existing docs with a matching updatedAt are
-// skipped (idempotence); otherwise the newest entry per id wins. Deletes are
-// entries with deleted:true. Returns { applied, skipped } counts.
+// Apply a tape to a local adapter. The newest entry per id wins on the
+// non-secret updatedAt timestamp: a local doc newer than the incoming entry is
+// left untouched, a write matching the local version is skipped (idempotence),
+// and a deleted:true entry whose timestamp dominates the local doc's applies
+// the delete (a tombstone at the same updatedAt is the delete of exactly that
+// version — it must not be treated as a duplicate). Returns { applied, skipped }.
 export async function applyTape(tape, adapter) {
   const now = Date.now();
   let applied = 0;
   let skipped = 0;
   for (const e of tape) {
-    if (!e || typeof e.id !== 'string' || !e.updatedAt) {
+    if (!e || typeof e.id !== 'string' || typeof e.updatedAt !== 'string') {
       skipped++;
       continue;
     }
     const existing = await adapter.getDoc(e.id);
-    if (existing && existing.updatedAt === e.updatedAt) {
+    const existingTs = existing ? existing.updatedAt || '' : '';
+    if (e.deleted) {
+      // LWW on updatedAt: a tombstone younger than the local doc deletes it;
+      // a tombstone older than the local doc is stale and must not resurrect
+      // either way (guards below).
+      if (existing && existingTs > e.updatedAt) {
+        skipped++; // local doc is newer than the tombstone — don't delete it
+        continue;
+      }
+      if (existing) {
+        await adapter.deleteDoc(e.id);
+        if (adapter.ftsDelete) await adapter.ftsDelete(e.id);
+      } else {
+        // Doc already absent; just adopt the tombstone so it continues to
+        // propagate (prevents an old tape from resurrecting the doc here).
+        const ts = typeof adapter.listTombstones === 'function' ? await adapter.listTombstones() : [];
+        if ((ts || []).some((t) => t && t.id === e.id && t.updatedAt === e.updatedAt)) {
+          skipped++; // this exact tombstone already recorded
+          continue;
+        }
+      }
+      if (typeof adapter.markDeleted === 'function') {
+        await adapter.markDeleted(e.id, e.updatedAt);
+      }
+      applied++;
+      continue;
+    }
+    // live write entry
+    if (existingTs === e.updatedAt) {
       skipped++; // already have this exact version
       continue;
     }
-    if (e.deleted) {
-      await adapter.deleteDoc(e.id);
-      if (adapter.ftsDelete) await adapter.ftsDelete(e.id);
-    } else if (e.dekIv && e.dekData && e.iv && e.data) {
-      await adapter.putDoc({
-        id: e.id,
-        dekIv: e.dekIv,
-        dekData: e.dekData,
-        iv: e.iv,
-        data: e.data,
-        createdAt: e.createdAt || '',
-        updatedAt: e.updatedAt || new Date(now).toISOString(),
-      });
-    } else {
+    if (existing && existingTs > e.updatedAt) {
+      skipped++; // local copy is newer — don't let a stale tape clobber it
+      continue;
+    }
+    if (!e.dekIv || !e.dekData || !e.iv || !e.data) {
       skipped++;
       continue;
     }
+    await adapter.putDoc({
+      id: e.id,
+      dekIv: e.dekIv,
+      dekData: e.dekData,
+      iv: e.iv,
+      data: e.data,
+      createdAt: e.createdAt || '',
+      updatedAt: e.updatedAt || new Date(now).toISOString(),
+    });
     applied++;
   }
   return { applied, skipped };
 }
 
 // Build the local tape from the current doc set: one plaintext-free entry per
-// doc (the newest state). Every entry carries the document's own updatedAt so
-// peer tapes converge to the newest per id.
+// doc (the newest state) plus one deleted:true entry per tombstoned doc, so
+// deletes propagate to peers and never resurrect. Every entry carries the
+// document's own updatedAt, so peer tapes converge to the newest per id.
 export async function localTape(adapter) {
   const ids = (await adapter.listDocs()).map((r) => r.id);
+  const live = new Set(ids);
   const entries = [];
   for (const id of ids) {
     const d = await adapter.getDoc(id);
@@ -95,6 +128,20 @@ export async function localTape(adapter) {
       updatedAt: d.updatedAt,
       deleted: false,
     });
+  }
+  // Tombstoned docs that are no longer live become deleted:true entries. The
+  // LWW guard in applyTape keys on updatedAt only, so a tombstone must not be
+  // emittable while the doc is still live (it would republish stale ciphertext).
+  if (typeof adapter.listTombstones === 'function') {
+    const tombstones = await adapter.listTombstones();
+    for (const t of tombstones || []) {
+      if (!t || t.updatedAt == null) continue;
+      entries.push({
+        id: t.id,
+        updatedAt: t.updatedAt,
+        deleted: true,
+      });
+    }
   }
   return entries;
 }

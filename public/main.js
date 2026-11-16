@@ -4,6 +4,7 @@
 import { IndexedDBBackend } from './idb.js';
 import { openKb, createKb } from '../src/factory.js';
 import { exportKB, serializeKB, deserializeKB, importKB } from '../src/bak.js';
+import { buildTape, serializeTape, parseTape, applyTapeFile, assertSameWorkspace } from '../src/syncfile.js';
 import { textToBlocks, blocksToMarkdown } from '../src/factory.js';
 import { renderMarkdown } from './markdown.js';
 import { uuid } from '../src/util.js';
@@ -224,6 +225,52 @@ async function importKBFile(file) {
   }
 }
 
+// ---------- sync tape (.kbsync) ----------
+
+async function syncOutFile() {
+  if (!state.store) return;
+  if (state.dirty && !confirm('Save the current document before syncing out? The tape carries ' +
+      'only what is already persisted.')) return;
+  const tape = await buildTape(state.params, state.store.db);
+  const blob = new Blob([serializeTape(tape)], { type: 'application/json' });
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'local-kb-sync.kbsync';
+  a.click();
+  URL.revokeObjectURL(a.href);
+  log('Wrote sync tape (' + tape.entries.length + ' entries, ciphertext only). Carry it to another machine and "Sync in".');
+}
+
+async function syncInFile(file) {
+  let tape;
+  try {
+    tape = parseTape(new Uint8Array(await file.arrayBuffer()));
+  } catch (err) {
+    log('Sync refused: ' + err.message, true);
+    return;
+  }
+  try {
+    assertSameWorkspace(state.params, tape);
+  } catch (err) {
+    log('Sync refused: ' + err.message, true);
+    return;
+  }
+  const res = await applyTapeFile(state.store.db, tape);
+  // Re-open with the current password so store handles + FTS index reflect
+  // everything the tape merged in (new/deleted docs, tombstones).
+  const pw = sessionStorage.getItem('local-kb-pw');
+  const reopened = await openKb(state.store.db, pw);
+  if (reopened.ok) {
+    state.store = reopened.store;
+    state.params = reopened.params;
+    await refreshDocList(state.store);
+  } else {
+    log('Sync done, but re-unlock failed.', true);
+    return;
+  }
+  log(res.applied + ' docs synced in, ' + res.skipped + ' skipped.');
+}
+
 // ---------- boot ----------
 
 async function enterApp(store, params) {
@@ -264,10 +311,15 @@ function bind() {
   $('#btn-delete').addEventListener('click', removeDoc);
   $('#btn-search').addEventListener('click', doSearch);
   $('#btn-export').addEventListener('click', exportKBFile);
+  $('#btn-sync-out').addEventListener('click', syncOutFile);
   $('#btn-preview').addEventListener('click', togglePreview);
   $('#import-file').addEventListener('change', (e) => {
     const f = e.target.files && e.target.files[0];
     if (f) importKBFile(f);
+  });
+  $('#sync-file').addEventListener('change', (e) => {
+    const f = e.target.files && e.target.files[0];
+    if (f) syncInFile(f);
   });
   $('#editor-title').addEventListener('input', markDirty);
   $('#editor-area').addEventListener('input', markDirty);

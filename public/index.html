@@ -79,6 +79,11 @@
           background:#2a303a; border-radius:8px; padding:9px 16px;">Import .kb
           <input type="file" id="import-file" accept=".kb,application/json" style="display:none;" />
         </label>
+        <button id="btn-sync-out" class="secondary" title="Write a ciphertext-only sync tape to carry to another machine">Sync out</button>
+        <label class="secondary" style="display:inline-block; cursor:pointer;
+          background:#2a303a; border-radius:8px; padding:9px 16px;">Sync in
+          <input type="file" id="sync-file" accept=".kbsync,application/json" style="display:none;" />
+        </label>
       </div>
     </div>
 
@@ -101,7 +106,7 @@
           </div>
         </div>
         <textarea id="editor-area" placeholder="Markdown… `code`, **bold**, [link](url), `` ```js … ``` `"></textarea>
-        <div id="preview"></div></textarea>
+        <div id="preview"></div>
       </section>
     </div>
     <p class="muted">Encryption: PBKDF2-SHA256(310k) → workspace key (HKDF) → per-doc AES-256-GCM DEK
