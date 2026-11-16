@@ -162,9 +162,21 @@ def main():
             log,
         )
 
-        # ---- create workspace
+        # ---- create workspace (confirm field: a typo is unrecoverable)
         pw = driver.find_element(By.ID, "pw2")
         pw.send_keys("correct horse battery staple")
+        mismatch = driver.find_element(By.ID, "pw2b")
+        mismatch.send_keys("correct horse battery staple but different")
+        driver.find_element(By.ID, "btn-create").click()
+        time.sleep(0.8)
+        log = driver.find_element(By.ID, "log").text
+        check(
+            "create refused when the two passwords differ",
+            "do not match" in log.lower(),
+            log,
+        )
+        mismatch.clear()
+        mismatch.send_keys("correct horse battery staple")
         driver.find_element(By.ID, "btn-create").click()
         # view-app exists in static HTML but is display:none until the async
         # PBKDF2 (310k iters) key derivation finishes and setView() runs — wait

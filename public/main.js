@@ -362,6 +362,8 @@ async function unlock() {
 async function createVault() {
   const pw = $('#pw2').value;
   if (!pw || pw.length < 8) return log('Use at least 8 characters.', true);
+  const confirmPw = $('#pw2b').value;
+  if (pw !== confirmPw) return log('Passwords do not match — the master password can never be recovered, so please re-enter it carefully.', true);
   const db = new IndexedDBBackend();
   const { store, workspace } = await createKb(db, pw);
   sessionStorage.setItem('local-kb-pw', pw);
