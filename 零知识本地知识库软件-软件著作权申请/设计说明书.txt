@@ -153,12 +153,16 @@ server/：
 
 2.5  模块划分与接口关系
 
-  表示层 ──► factory.js（createKb/openKb）──► store.js（DocStore）
-  DocStore ──► workspace.js（派生密钥/校验）──► crypto.js（原语）
-  DocStore ──► adapter（db.js / idb.js）──► 存储介质
-  store.js  ◄──► sync.js / syncfile.js（同步磁带）
-  store.js  ◄──► bak.js（备份）
-  factory.js ──► docmodel.js（块模型）
+  factory.js 为装配根：表示层 ──► factory.js（createKb/openKb）──►
+    workspace.js（createWorkspace/unlockWorkspace）──► store.js（DocStore）
+    ──► adapter（db.js / idb.js）──► 存储介质
+  factory.js ──► docmodel.js（textToBlocks/blocksToMarkdown，块模型）
+  store.js ──► crypto.js（DEK 封装/解封与文档加解密）
+  sync.js ◄──► syncfile.js（buildTape→serializeTape→parseTape→applyTape）
+  bak.js / sync.js / rekey.js 均直接操作 adapter 接口（getDoc/putDoc/
+    deleteDoc/listTombstones/markDeleted 等），不经 DocStore；
+  表示层（public/main.js）直接装配 bak.js、syncfile.js、rekey.js 与
+    factory.js，全程只接触密文流。
 
 3  详细设计
 ────────────────────────────────────────────────────────────────
