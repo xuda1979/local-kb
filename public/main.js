@@ -320,6 +320,7 @@ async function changePassword() {
 async function enterApp(store, params) {
   state.store = store;
   state.params = params;
+  $('#ws-label').textContent = '· ' + params.name;
   setView({ title: 'Local KB · unlocked', target: '#view-app' });
   await refreshDocList(store);
 }
@@ -360,12 +361,20 @@ async function unlock() {
 }
 
 async function createVault() {
+  const name = $('#wsname').value.trim();
+  if (!name) return log('Give the workspace a name (it participates in key derivation).', true);
   const pw = $('#pw2').value;
   if (!pw || pw.length < 8) return log('Use at least 8 characters.', true);
   const confirmPw = $('#pw2b').value;
   if (pw !== confirmPw) return log('Passwords do not match — the master password can never be recovered, so please re-enter it carefully.', true);
   const db = new IndexedDBBackend();
-  const { store, workspace } = await createKb(db, pw);
+  // Never create over a live vault: saveParams is an id=1 upsert, so a new
+  // workspace would replace the params and orphan every existing document's
+  // ciphertext (unrecoverable without the old workspace key). The .kb import
+  // path already refuses cross-workspace overwrites; creation must too.
+  const vault = await db.getParams();
+  if (vault) return log('A vault already exists in this browser — unlock with its master password instead.', true);
+  const { store, workspace } = await createKb(db, pw, name);
   sessionStorage.setItem('local-kb-pw', pw);
   const params = await db.getParams();
   await enterApp(store, params);

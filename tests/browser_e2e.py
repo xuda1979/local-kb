@@ -163,6 +163,8 @@ def main():
         )
 
         # ---- create workspace (confirm field: a typo is unrecoverable)
+        wsname = driver.find_element(By.ID, "wsname")
+        wsname.send_keys("ops-vault")
         pw = driver.find_element(By.ID, "pw2")
         pw.send_keys("correct horse battery staple")
         mismatch = driver.find_element(By.ID, "pw2b")
@@ -183,6 +185,39 @@ def main():
         # for actual visibility, not DOM presence.
         wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
         check("workspace created, app view shown", True)
+        label = driver.find_element(By.ID, "ws-label").text
+        check("workspace name surfaced in app header", "ops-vault" in label, label)
+
+        # ---- create is refused while a vault exists (never orphan it)
+        # The workspace name participates in HKDF key derivation, so a nameless
+        # create must be refused outright (lock first to return to the gate).
+        driver.find_element(By.ID, "btn-lock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+        wsname.clear()
+        driver.find_element(By.ID, "pw2").send_keys("another dungeon master key")
+        driver.find_element(By.ID, "pw2b").send_keys("another dungeon master key")
+        driver.find_element(By.ID, "btn-create").click()
+        time.sleep(0.8)
+        log = driver.find_element(By.ID, "log").text
+        check("create refused with no workspace name", "name" in log.lower(), log)
+
+        # Even a fully-filled create is refused over the live vault (creating
+        # again would replace the workspace params and orphan every doc).
+        wsname.send_keys("ops-vault")
+        driver.find_element(By.ID, "btn-create").click()
+        time.sleep(0.8)
+        log = driver.find_element(By.ID, "log").text
+        check("create refused when a vault already exists",
+              "already exists" in log.lower(), log)
+
+        # The refused creates must not have touched the live vault: re-unlock
+        # with the real master password and confirm the workspace survives.
+        pw = driver.find_element(By.ID, "pw")
+        pw.send_keys("correct horse battery staple")
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        label = driver.find_element(By.ID, "ws-label").text
+        check("refused creates left existing vault intact", "ops-vault" in label, label)
 
         # ---- create a doc with known plaintext
         # wait until the backend has finished unlocking and the doc list UI

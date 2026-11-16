@@ -33,7 +33,9 @@ node server/demo.mjs
 
 ### Try it
 
-1. Choose a master password (>= 8 chars) and **Create vault**.
+1. Give the workspace a name (participates in key derivation — use the same
+   name on every machine that must sync/import), choose a master password
+   (>= 8 chars, entered twice) and **Create vault**.
 2. Create/en/edit documents; hit **Save**. Everything is re-encrypted instantly.
 3. Close the tab, reopen, unlock — data is still there.
 4. **Lock** to drop the master password from the session and clear plaintext
