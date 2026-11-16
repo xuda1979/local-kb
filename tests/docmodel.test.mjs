@@ -197,3 +197,22 @@ test('fenced code body stays searchable (user manual 3.4: 代码全文匹配)', 
   assert.ok((await r.store.search('encrypt')).some((h) => h.id === 'c1'), 'code identifier must be searchable');
   b.close();
 });
+
+test('lists round-trip verbatim as paragraph blocks (user manual 3.5)', () => {
+  // list lines have no dedicated block type (SPEC block model); they are
+  // stored as paragraph blocks and re-emit their markdown unchanged
+  const ul = textToBlocks('- a\n- b\n- c');
+  assert.equal(ul.length, 3);
+  assert.deepEqual(ul, [
+    { type: 'paragraph', text: '- a' },
+    { type: 'paragraph', text: '- b' },
+    { type: 'paragraph', text: '- c' },
+  ]);
+  assert.equal(blocksToMarkdown(ul), '- a\n- b\n- c');
+  const ol = textToBlocks('1. one\n2. two');
+  assert.equal(blocksToMarkdown(ol), '1. one\n2. two');
+  assert.deepEqual(textToBlocks(blocksToMarkdown(ol)), ol);
+  // blank separator lines between items collapse exactly as they do for
+  // plain paragraphs — the documented block-model grouping, not a list bug
+  assert.equal(blocksToMarkdown(textToBlocks('- a\n\n- b')), '- a\n- b');
+});
