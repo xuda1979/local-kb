@@ -486,6 +486,26 @@ def main():
         check("lock: re-unlock shows the docs again (data intact)",
               any(KNOWN_TITLE in d.text for d in docs), [d.text for d in docs])
 
+        # ---- idle auto-lock (manual 3.2: re-lock after a default idle period)
+        # Shrink the idle window to real seconds via the documented page-global
+        # override, then wait for the timer to fire on its own. Dispatching a
+        # real mousemove re-arms the timer so the override takes effect; after
+        # that, no page interaction (no keydown/mousemove) may happen before the
+        # lock fires, or the test would just postpone it.
+        driver.execute_script("""
+          window.LOCAL_KB_IDLE_MS = 3000;
+          document.dispatchEvent(new MouseEvent('mousemove'));
+        """)
+        time.sleep(4.2)
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+        check("idle auto-lock: returns to the unlock gate", True)
+        pw_held = driver.execute_script("return sessionStorage.getItem('local-kb-pw');")
+        check("idle auto-lock: master password dropped from session",
+              pw_held is None or pw_held == "", str(pw_held))
+        log = driver.find_element(By.ID, "log").text
+        check("idle auto-lock: log reports the inactivity lock",
+              "auto-locked" in log.lower(), log)
+
         # IndexedDB must hold ciphertext only, with no new-password plaintext
         dump = flatten_dump(get_db_dump(driver))
         for needle in [NEW_PW, "correct horse battery staple"]:

@@ -323,10 +323,42 @@ async function enterApp(store, params) {
   $('#ws-label').textContent = '· ' + params.name;
   setView({ title: 'Local KB · unlocked', target: '#view-app' });
   await refreshDocList(store);
+  armIdleLock();
 }
 
-function lock() {
-  if (state.dirty && !confirm('Discard unsaved changes and lock?')) return;
+// ---------- idle auto-lock ----------
+// 用户手册 3.2: "每次打开页面（或默认一段时间后），需用主密码解锁" — the vault
+// must re-lock itself after a period of inactivity, not only on the Lock button.
+// Default 5 minutes; a page-global override (window.LOCAL_KB_IDLE_MS) lets the
+// browser E2E shrink the window to real seconds.
+
+const IDLE_LOCK_MS = 5 * 60 * 1000;
+let idleTimer = null;
+
+function idleWindowMs() {
+  const n = Number(window.LOCAL_KB_IDLE_MS);
+  return Number.isFinite(n) && n > 0 ? n : IDLE_LOCK_MS;
+}
+
+function armIdleLock() {
+  clearIdleLock();
+  if (!state.store) return; // locked view — no timer
+  idleTimer = setTimeout(idleLock, idleWindowMs());
+}
+
+function clearIdleLock() {
+  if (idleTimer != null) {
+    clearTimeout(idleTimer);
+    idleTimer = null;
+  }
+}
+
+// The shared lock body. The manual Lock button guards unsaved changes with a
+// confirm; the idle path must not prompt (a modal on an empty desk is useless),
+// so it persists any pending edits first — in a zero-knowledge vault nothing
+// can be recovered after the key drops, so losing a dirty editor silently
+// would be unrecoverable.
+function doLock() {
   sessionStorage.removeItem('local-kb-pw');
   state.store = null;
   state.params = null;
@@ -335,16 +367,30 @@ function lock() {
   state.dirty = false;
   state.preview = false;
   clearDirty();
+  clearIdleLock();
   $('#editor-title').value = '';
   $('#editor-area').value = '';
   $('#search-term').value = '';
   $('#doc-list').innerHTML = '';
   $('#preview').innerHTML = '';
-  $('#log').textContent = '';
   $('#editor-area').style.display = 'block';
   $('#preview').style.display = 'none';
   $('#btn-preview').textContent = 'Preview';
   setView({ title: 'Local KB · lock', target: '#view-unlock' });
+}
+
+function lock() {
+  if (state.dirty && !confirm('Discard unsaved changes and lock?')) return;
+  $('#log').textContent = '';
+  doLock();
+}
+
+async function idleLock() {
+  if (state.store && state.current && state.dirty) {
+    await saveDoc(); // persist before dropping the key, never lose edits
+  }
+  doLock();
+  log('Auto-locked after inactivity — the session password was dropped.');
 }
 
 async function unlock() {
@@ -408,6 +454,11 @@ function bind() {
       saveDoc();
     }
   });
+  // Any real user activity postpones the idle auto-lock (manual 3.2). Keydown
+  // also fires for hotkeys, which is fine — a typing user is not idle.
+  for (const evt of ['mousemove', 'mousedown', 'keydown', 'scroll', 'touchstart']) {
+    document.addEventListener(evt, () => armIdleLock());
+  }
 }
 
 setView({ title: 'Local KB · lock', target: '#view-unlock' });
