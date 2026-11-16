@@ -31,8 +31,46 @@ test('textToBlocks preserves headings/code/quote', () => {
   assert.equal(blocks[0].type, 'heading');
   assert.equal(blocks[1].type, 'quote');
   assert.equal(blocks[2].type, 'code');
+  assert.equal(blocks[2].text, '```\ncode here\n```', 'fenced body must be kept verbatim inside the code block');
   assert.equal(blocks[3].type, 'paragraph');
   assert.equal(blocksToMarkdown(blocks).split('\n')[0], '# Big heading');
+});
+
+test('fenced code round-trips losslessly (lang tag, both fences)', () => {
+  // note: blank separator lines between blocks are collapsed by the block
+  // model (paragraphs/quotes too); the code *region* itself is preserved
+  // verbatim, fences, lang tag and body included.
+  const text = '```js\nlet x = 1\nlet y = 2\n```\n~~~bash\necho hi\n~~~';
+  const blocks = textToBlocks(text);
+  assert.equal(blocks.length, 2, 'one code block per fenced region');
+  assert.deepEqual(blocks[0], { type: 'code', text: '```js\nlet x = 1\nlet y = 2\n```' });
+  assert.deepEqual(blocks[1], { type: 'code', text: '~~~bash\necho hi\n~~~' });
+  // the editor round-trip (renderEditor -> saveDoc -> renderEditor) is lossless
+  assert.equal(blocksToMarkdown(blocks), text);
+  // blank lines *inside* a region are preserved too
+  const blank = textToBlocks('```\na\n\nb\n```');
+  assert.equal(blank.length, 1);
+  assert.equal(blank[0].text, '```\na\n\nb\n```');
+});
+
+test('empty and unclosed fenced regions behave', () => {
+  // immediately-closed fence → one empty code block
+  const empty = textToBlocks('```\n```');
+  assert.equal(empty.length, 1);
+  assert.equal(empty[0].type, 'code');
+  assert.equal(empty[0].text, '```\n```');
+  // an unclosed fence runs to the end of the document (like the renderer)
+  const unclosed = textToBlocks('before\n\n```python\nx = 1\ny = 2');
+  assert.equal(unclosed[unclosed.length - 1].type, 'code');
+  assert.equal(unclosed[unclosed.length - 1].text, '```python\nx = 1\ny = 2');
+});
+
+test('code regions are stable under re-emit + re-parse (no drift)', () => {
+  const md = '# T\npara\n\n```js\nfunction f() {\n  return 1\n}\n```\n\n> q';
+  const blocks = textToBlocks(md);
+  assert.deepEqual(blocks[2], { type: 'code', text: '```js\nfunction f() {\n  return 1\n}\n```' });
+  // re-emit then re-parse gives identical blocks — no garbage, no lost lines
+  assert.deepEqual(textToBlocks(blocksToMarkdown(blocks)), blocks);
 });
 
 test('blocksToMarkdown reconstructs markdown from blocks', () => {
@@ -96,5 +134,21 @@ test('table cells are searchable via plaintextForIndex', async () => {
     { type: 'table', text: '| name | city |\n| --- | --- |\n| X | Kyoto |' },
   ]);
   assert.ok((await r.store.search('Kyoto')).some((h) => h.id === 't1'));
+  b.close();
+});
+
+test('fenced code body stays searchable (user manual 3.4: 代码全文匹配)', async () => {
+  const { createKb, openKb } = await import('../src/factory.js');
+  const { SQLiteBackend } = await import('../src/db.js');
+  const { tempDbPath } = await import('./helpers.mjs');
+  const b = new SQLiteBackend(tempDbPath());
+  await createKb(b, 'pw');
+  const r = await openKb(b, 'pw');
+  // round-trips through the editor path: markdown -> blocks -> store
+  const blocks = textToBlocks('```python\ndef encrypt(data):\n    return "x9k2"\n```');
+  assert.equal(blocks.length, 1);
+  await r.store.create('c1', 'Crypto Snippet', blocks);
+  assert.ok((await r.store.search('x9k2')).some((h) => h.id === 'c1'), 'code body token must be searchable');
+  assert.ok((await r.store.search('encrypt')).some((h) => h.id === 'c1'), 'code identifier must be searchable');
   b.close();
 });
