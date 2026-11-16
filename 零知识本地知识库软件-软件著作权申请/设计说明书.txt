@@ -79,7 +79,7 @@
   bak.js          .kb 备份的序列化/反序列化/导出/导入
   rekey.js        修改主密码：全部 DEK 重新封装并重建校验器
   factory.js      高层装配与 Markdown↔块模型转换
-  docmodel.js     文档块模型（标题/段落/标题/代码/引用/表格）
+  docmodel.js     文档块模型（文档标题/段落/章节标题/代码/引用/表格）
   sync.js         密文同步平面：localTape/mergeTape/applyTape
   syncfile.js     .kbsync 磁带文件构建/解析/应用与工作区鉴权
   util.js         通用工具（UUID、时间戳等）
