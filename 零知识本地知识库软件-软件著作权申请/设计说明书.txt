@@ -233,8 +233,9 @@ server/：
   · serializeKB → JSON 字符串 / parseKB 返回 {params, docs}
   · deserializeKB → 对象
   · importKB(adapter, parsed)：校验工作区盐值一致（盐不同则工作区密钥
-    必然不同，拒绝导入以防孤儿文档），幂等（已存在同步 DEK 的文档
-    跳过），批量写入
+    必然不同，拒绝导入以防孤儿文档），幂等（目标库已存在同 ID 文档
+    跳过），墓碑中的已删除文档亦跳过（旧备份不复活已删除文档），
+    批量写入
 
 3.6  Re-Key 模块（rekey.js）详细设计
 
