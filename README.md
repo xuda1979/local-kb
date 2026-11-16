@@ -10,6 +10,8 @@ touches disk, so neither the backing store nor any server can read your notes.
   + HKDF workspace namespacing (reuses the 01-passvault design).
 - **Search**: FTS5 over a local in-memory index (plaintext in RAM only).
 - **Portable backups**: `.kb` export/import for machine migration.
+- **Markdown editor + preview**: dependency-free XSS-safe renderer; preview toggle
+  and unsaved-changes guard in the demo UI.
 
 ---
 
@@ -30,7 +32,8 @@ node server/demo.mjs
 2. Create/en/edit documents; hit **Save**. Everything is re-encrypted instantly.
 3. Close the tab, reopen, unlock — data is still there.
 4. **Search** to find docs by keyword (local FTS index).
-5. **Export .kb** to download a ciphertext-only backup; **Import .kb** on
+5. Toggle **Preview** to render the markdown live; **Ctrl/Cmd+S** saves.
+6. **Export .kb** to download a ciphertext-only backup; **Import .kb** on
    another machine (or empty profile) to restore — using the same master password.
 
 > The demo is 100% offline-capable: all code ships as static files, the only
@@ -118,14 +121,14 @@ tests/
   fts-hardening, sync  (Node test runner)
   browser_e2e.py  optional real-Firefox/geckodriver drive test
 public/
-  index.html, main.js, idb.js   — offline web client
+  index.html, main.js, markdown.js, idb.js   — offline web client
 server/demo.mjs                 — static demo server
 vendor/fake-indexeddb/          — vendored spec-compliant in-memory IDB
 ```
 
 ## Testing
 
-`npm test` runs 44 tests headlessly via `node --test`:
+`npm test` runs 55 tests headlessly via `node --test`:
 
 - **No-plaintext-on-disk**: after writing known strings (title, body text,
   code, master password), greps the raw SQLite bytes and IndexedDB records —
@@ -142,6 +145,9 @@ vendor/fake-indexeddb/          — vendored spec-compliant in-memory IDB
   would orphan existing documents); re-import is idempotent.
 - **Sync (P3)**: tapes carry only ciphertext; two stores sharing a workspace
   converge after exchanging tapes; re-applying a tape is a no-op.
+- **Markdown**: structural output for every block type (headings, lists,
+  tables, fenced code…), and XSS safety — escape-first throughout plus
+  `javascript:`/`data:` link targets degraded to inert text.
 - The offline browser UI is exercised through the same store layer with
   `fake-indexeddb` (spec-compliant, no browser needed).
 
