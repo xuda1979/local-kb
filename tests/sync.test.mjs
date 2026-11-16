@@ -137,3 +137,70 @@ test('localTape drops the stale tombstone after a doc is deleted and re-created'
   s.b.close();
   peer.b.close();
 });
+
+test('a stale tape cannot resurrect a doc deleted on the peer (tombstone wins)', async () => {
+  // Node A has doc 'shared' and captures a tape while it is alive.
+  const p1 = tempDbPath();
+  const s1 = await openSeed(p1, [['shared', 'Shared Doc', 'v1 body']]);
+  // capture the pre-delete tape entry; this is the "old tape" carried to B
+  const staleTape = await localTape(s1.b);
+  const staleEntry = staleTape.find((e) => e.id === 'shared');
+  assert.ok(staleEntry && staleEntry.deleted === false, 'stale tape has the live entry');
+  assert.ok(staleEntry.updatedAt, 'live entry carries a timestamp');
+
+  // Node B (same workspace) receives the doc, then deletes it locally — this
+  // records a tombstone with the deleted doc's own updatedAt.
+  const p2 = tempDbPath();
+  const s2 = await openSeed(p2, [], s1.params);
+  await applyTape(await localTape(s1.b), s2.b);
+  assert.equal((await s2.r.store.list()).length, 1, 'peer received the doc');
+  await s2.r.store.delete('shared');
+  assert.equal((await s2.r.store.list()).length, 0, 'doc deleted on the peer');
+
+  // Now B applies the STALE tape (captured before the delete). Its live entry
+  // for 'shared' has the same timestamp as the tombstone (or older) — the
+  // tombstone is a delete of exactly that version, so the doc must NOT return.
+  const res = await applyTape(staleTape, s2.b);
+  assert.equal(res.applied, 0, 'stale live entry must not be applied');
+  assert.equal((await s2.r.store.list()).length, 0, 'doc stays deleted after stale tape');
+  const tombs = await s2.b.listTombstones();
+  assert.ok(tombs.some((t) => t.id === 'shared'), 'tombstone is still recorded');
+  s1.b.close();
+  s2.b.close();
+});
+
+test('a tape newer than the tombstone recreates the doc (delete -> recreate)', async () => {
+  const p1 = tempDbPath();
+  const s1 = await openSeed(p1, [['shared', 'Shared Doc', 'v1 body']]);
+  // Node B deletes the doc, leaving a tombstone.
+  const p2 = tempDbPath();
+  const s2 = await openSeed(p2, [], s1.params);
+  await applyTape(await localTape(s1.b), s2.b);
+  await s2.r.store.delete('shared');
+  assert.ok((await s2.b.listTombstones()).some((t) => t.id === 'shared'));
+
+  // Node A edits the doc AFTER B's delete — a genuinely newer version.
+  // (Use the raw backend entry: store.get returns the decrypted doc, not the
+  // ciphertext row; only the LWW timestamp matters for the recreate check.)
+  const raw = await s1.b.getDoc('shared');
+  assert.ok(raw, 'raw entry present on node A');
+  const tape = [
+    {
+      id: 'shared',
+      dekIv: raw.dekIv,
+      dekData: raw.dekData,
+      iv: raw.iv,
+      data: raw.data,
+      createdAt: raw.createdAt,
+      updatedAt: '2999-01-01T00:00:00.000Z', // far future, strictly newer than the tombstone
+      deleted: false,
+    },
+  ];
+  const res = await applyTape(tape, s2.b);
+  assert.equal(res.applied, 1, 'newer live entry applies despite the tombstone');
+  assert.equal((await s2.r.store.list()).length, 1, 'doc recreated on the peer');
+  const tombs = await s2.b.listTombstones();
+  assert.ok(!tombs.some((t) => t.id === 'shared'), 'stale tombstone cleared on recreate');
+  s1.b.close();
+  s2.b.close();
+});

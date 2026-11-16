@@ -91,6 +91,14 @@ export async function importKB(adapter, kb) {
 
   await adapter.saveParams(ws);
   const existingIds = new Set((await adapter.listDocs()).map((r) => r.id));
+  // A doc deleted (tombstoned) after a backup was taken must NOT come back from
+  // an old .kb restore: manual 3.3 promises even old backups cannot resurrect a
+  // deleted doc. Tombstone ids are skipped below, exactly like ids already live.
+  const tombstoneIds = new Set(
+    typeof adapter.listTombstones === 'function'
+      ? (await adapter.listTombstones()).map((t) => t.id)
+      : []
+  );
   if (Array.isArray(kb.documents)) {
     for (const d of kb.documents) {
       if (!d || !d.dekIv || !d.dekData || !d.iv || !d.data) {
@@ -99,6 +107,10 @@ export async function importKB(adapter, kb) {
       }
       if (existingIds.has(d.id)) {
         duplicate++;
+        continue;
+      }
+      if (tombstoneIds.has(d.id)) {
+        skipped.push(d.id);
         continue;
       }
       await adapter.putDoc(d);

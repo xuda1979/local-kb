@@ -3,6 +3,8 @@
 //     refused (would otherwise orphan every stored document)
 //   * re-importing the SAME backup is idempotent (no dupes)
 //   * skipping malformed doc rows doesn't abort the import
+//   * importing an OLD backup cannot resurrect a doc deleted after the export
+//     (user manual 3.3: tombstones outlive backups)
 
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -94,5 +96,29 @@ test('malformed doc rows are skipped, valid rows still import', async () => {
   const rows = await b.listDocs();
   assert.equal(rows.length, 1);
   assert.equal(rows[0].id, 'good');
+  b.close();
+});
+
+test('old .kb backup cannot resurrect a doc deleted after the export', async () => {
+  // Single vault flow: the vault records the tombstone when 'gone' is deleted,
+  // and importing an OLD backup (captured while the doc was alive) into the
+  // same vault must respect that tombstone — no resurrection (user manual 3.3).
+  const path = tempDbPath();
+  const { b, r } = await makeKb(path, 'vault-tomb', [['gone', 'Gone Doc', 'doomed body']]);
+  // export the backup while the doc is still alive
+  const rows = [];
+  for (const { id } of await b.listDocs()) rows.push(await b.getDoc(id));
+  const kb = exportKB(await b.getParams(), rows);
+  const bytes = serializeKB(kb);
+  // then delete the doc on the same store (records a tombstone)
+  await r.store.delete('gone');
+  assert.equal((await r.store.list()).length, 0, 'doc deleted locally');
+  assert.ok((await b.listTombstones()).some((t) => t.id === 'gone'), 'tombstone recorded');
+
+  // importing the OLD backup must respect the tombstone: no resurrection
+  const res = await importKB(b, deserializeKB(bytes));
+  assert.ok(!res.imported.includes('gone'), 'tombstoned doc must not be re-imported');
+  const remaining = await b.listDocs();
+  assert.ok(!remaining.some((r) => r.id === 'gone'), 'doc stays gone after old-backup import');
   b.close();
 });

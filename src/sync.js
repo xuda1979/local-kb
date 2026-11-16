@@ -47,6 +47,13 @@ export async function applyTape(tape, adapter) {
   const now = Date.now();
   let applied = 0;
   let skipped = 0;
+  // Local tombstones, loaded once: a deleted:true entry and a doc that was
+  // deleted at the same timestamp must not come back from a stale tape's live
+  // entry. A live entry strictly NEWER than the tombstone is a peer re-creating
+  // the doc (delete -> recreate), which wins and clears the stale tombstone.
+  const tombstones =
+    typeof adapter.listTombstones === 'function' ? await adapter.listTombstones() : [];
+  const tombMap = new Map((tombstones || []).map((t) => [t.id, t.updatedAt]));
   for (const e of tape) {
     if (!e || typeof e.id !== 'string' || typeof e.updatedAt !== 'string') {
       skipped++;
@@ -68,8 +75,7 @@ export async function applyTape(tape, adapter) {
       } else {
         // Doc already absent; just adopt the tombstone so it continues to
         // propagate (prevents an old tape from resurrecting the doc here).
-        const ts = typeof adapter.listTombstones === 'function' ? await adapter.listTombstones() : [];
-        if ((ts || []).some((t) => t && t.id === e.id && t.updatedAt === e.updatedAt)) {
+        if (tombMap.get(e.id) === e.updatedAt) {
           skipped++; // this exact tombstone already recorded
           continue;
         }
@@ -77,6 +83,7 @@ export async function applyTape(tape, adapter) {
       if (typeof adapter.markDeleted === 'function') {
         await adapter.markDeleted(e.id, e.updatedAt);
       }
+      tombMap.set(e.id, e.updatedAt);
       applied++;
       continue;
     }
@@ -87,6 +94,14 @@ export async function applyTape(tape, adapter) {
     }
     if (existing && existingTs > e.updatedAt) {
       skipped++; // local copy is newer — don't let a stale tape clobber it
+      continue;
+    }
+    // A local tombstone dominates a live entry of the same or older timestamp:
+    // the doc was deleted here after (or at exactly) that version — an old tape
+    // must not resurrect it (user manual 3.3 / 3.8 LWW rule).
+    const tomb = tombMap.get(e.id);
+    if (tomb != null && tomb >= e.updatedAt) {
+      skipped++;
       continue;
     }
     if (!e.dekIv || !e.dekData || !e.iv || !e.data) {
@@ -102,6 +117,12 @@ export async function applyTape(tape, adapter) {
       createdAt: e.createdAt || '',
       updatedAt: e.updatedAt || new Date(now).toISOString(),
     });
+    // delete -> recreate from a peer: the new live entry wins; drop the stale
+    // tombstone so a later delete of this doc is not confused with the old one.
+    if (tomb != null && typeof adapter.delMeta === 'function') {
+      await adapter.delMeta('tombstone:' + e.id);
+      tombMap.delete(e.id);
+    }
     applied++;
   }
   return { applied, skipped };
