@@ -142,12 +142,17 @@ export class IndexedDBBackend {
   async ftsDelete(docId) {
     this.fts.delete(docId);
   }
+  // 用户手册 3.4 技巧: "关键词可连续用空格分隔" — a space-separated query is
+  // an AND of keyword tokens, matching the SQLite/FTS5 backend's implicit AND
+  // for bare terms. Matching is per-token substring, so words can be separated
+  // by any other content (the whole-string substring match could never hit).
   async ftsSearch(query) {
-    const q = query.trim().toLowerCase();
-    if (!q) return [];
+    const tokens = query.trim().toLowerCase().split(/\s+/).filter(Boolean);
+    if (!tokens.length) return [];
     const out = [];
     for (const [id, text] of this.fts) {
-      if (text.toLowerCase().includes(q)) out.push({ id });
+      const hay = text.toLowerCase();
+      if (tokens.every((t) => hay.includes(t))) out.push({ id });
     }
     return out;
   }

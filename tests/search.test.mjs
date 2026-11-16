@@ -44,6 +44,19 @@ test('search for missing term returns no hits', async () => {
   b.close();
 });
 
+test('space-separated keywords AND-match (user manual 3.4 技巧)', async () => {
+  const { r, b } = await seeded();
+  // both tokens present in the same doc (non-adjacent) → hit
+  const both = await r.store.search('apples cinnamon');
+  assert.ok(both.some((h) => h.id === 'd-apple'), '"apples cinnamon" must AND-match d-apple');
+  // one token absent from a candidate doc → no hit for it
+  assert.ok(!both.some((h) => h.id === 'd-orange'), 'd-orange lacks both tokens');
+  // tokens split across a doc (title + body) do not match — FTS5 matches a doc, not a phrase
+  const split = await r.store.search('apple sunny');
+  assert.equal(split.length, 0, 'cross-field tokens must not AND-match a single doc');
+  b.close();
+});
+
 test('search result honors edits (reindex on save)', async () => {
   const path = tempDbPath();
   const b = new SQLiteBackend(path);

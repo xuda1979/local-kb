@@ -151,6 +151,28 @@ test('workspace name used as HKDF namespace', async () => {
   assert.equal(list.length, 0, 'different workspace namespace sees no docs');
 });
 
+test('multi-word search: space-separated keywords AND-match (user manual 3.4 技巧)', async () => {
+  const dbName = 'fts-multi-' + Date.now();
+  const ad = freshAdapter(dbName);
+  await createKb(ad, PW, 'team-kb');
+  const r = await openKb(ad, PW);
+  await r.store.create('s1', 'Snowstorm Project', [
+    { type: 'paragraph', text: 'subject: oscar; status: snowstorm readiness handled by ops' },
+  ]);
+  await r.store.create('s2', 'Unrelated', [{ type: 'paragraph', text: 'only oscar here, no storm' }]);
+
+  // both tokens present, apart from each other → hit (SQLite FTS5 would too)
+  const hits = await r.store.search('oscar snowstorm');
+  assert.ok(hits.some((h) => h.id === 's1'), '"oscar snowstorm" must AND-match s1');
+  assert.ok(!hits.some((h) => h.id === 's2'), 'doc missing one token must not match');
+
+  // single token still works (backwards-compatible)
+  const single = await r.store.search('ops');
+  assert.ok(single.some((h) => h.id === 's1'));
+  // empty / whitespace-only query → no hits, no throw
+  assert.equal((await r.store.search('   ')).length, 0);
+});
+
 // verify our vendored dep is what registers the global
 test('fake-indexeddb exposes IDB globals', () => {
   assert.ok(indexedDB && typeof indexedDB.open === 'function', 'indexedDB global with open()');
