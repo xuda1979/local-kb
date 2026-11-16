@@ -409,6 +409,29 @@ def main():
         check("re-key: new password unlocks vault with docs intact",
               any(KNOWN_TITLE in d.text for d in docs), [d.text for d in docs])
 
+        # ---- Lock: drop the master password from the session and clear memory
+        driver.find_element(By.ID, "btn-lock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+        check("lock: returns to the unlock view", True)
+        pw_held = driver.execute_script("return sessionStorage.getItem('local-kb-pw');")
+        check("lock: master password dropped from session",
+              pw_held is None or pw_held == "", str(pw_held))
+        editor = driver.find_element(By.ID, "editor-area").get_attribute("value")
+        docrows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("lock: editor cleared and doc list emptied",
+              editor == "" and len(docrows) == 0, f"editor={editor!r} rows={len(docrows)}")
+
+        # re-unlock with the (new) master password; ciphertext is still on disk
+        pw = driver.find_element(By.ID, "pw")
+        pw.clear()
+        pw.send_keys(NEW_PW)
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+        docs = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("lock: re-unlock shows the docs again (data intact)",
+              any(KNOWN_TITLE in d.text for d in docs), [d.text for d in docs])
+
         # IndexedDB must hold ciphertext only, with no new-password plaintext
         dump = flatten_dump(get_db_dump(driver))
         for needle in [NEW_PW, "correct horse battery staple"]:

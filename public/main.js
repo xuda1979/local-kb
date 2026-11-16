@@ -316,6 +316,28 @@ async function enterApp(store, params) {
   await refreshDocList(store);
 }
 
+function lock() {
+  if (state.dirty && !confirm('Discard unsaved changes and lock?')) return;
+  sessionStorage.removeItem('local-kb-pw');
+  state.store = null;
+  state.params = null;
+  state.current = null;
+  state.docs = [];
+  state.dirty = false;
+  state.preview = false;
+  clearDirty();
+  $('#editor-title').value = '';
+  $('#editor-area').value = '';
+  $('#search-term').value = '';
+  $('#doc-list').innerHTML = '';
+  $('#preview').innerHTML = '';
+  $('#log').textContent = '';
+  $('#editor-area').style.display = 'block';
+  $('#preview').style.display = 'none';
+  $('#btn-preview').textContent = 'Preview';
+  setView({ title: 'Local KB · lock', target: '#view-unlock' });
+}
+
 async function unlock() {
   const pw = $('#pw').value;
   if (!pw) return log('Enter a master password.', true);
@@ -344,6 +366,7 @@ function bind() {
   $('#btn-create').addEventListener('click', createVault);
   $('#btn-save').addEventListener('click', saveDoc);
   $('#btn-new').addEventListener('click', newDoc);
+  $('#btn-lock').addEventListener('click', lock);
   $('#btn-delete').addEventListener('click', removeDoc);
   $('#btn-search').addEventListener('click', doSearch);
   $('#btn-export').addEventListener('click', exportKBFile);

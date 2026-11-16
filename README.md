@@ -36,14 +36,16 @@ node server/demo.mjs
 1. Choose a master password (>= 8 chars) and **Create vault**.
 2. Create/en/edit documents; hit **Save**. Everything is re-encrypted instantly.
 3. Close the tab, reopen, unlock — data is still there.
-4. **Search** to find docs by keyword (local FTS index).
-5. Toggle **Preview** to render the markdown live; **Ctrl/Cmd+S** saves.
-6. **Export .kb** to download a ciphertext-only backup; **Import .kb** on
+4. **Lock** to drop the master password from the session and clear plaintext
+   from memory without closing the tab; unlock again with the same password.
+5. **Search** to find docs by keyword (local FTS index).
+6. Toggle **Preview** to render the markdown live; **Ctrl/Cmd+S** saves.
+7. **Export .kb** to download a ciphertext-only backup; **Import .kb** on
    another machine (or empty profile) to restore — using the same master password.
-7. **Sync out** writes a `.kbsync` file (ciphertext-only LWW tape); on a second
+8. **Sync out** writes a `.kbsync` file (ciphertext-only LWW tape); on a second
    machine sharing the same workspace password, **Sync in** that file to
    converge both doc sets — including deletes (tombstones carried in the tape).
-8. **Change master password**: enter current + new password (twice) in the
+9. **Change master password**: enter current + new password (twice) in the
    app view card — every document is re-wrapped under the new password, then
    the old password stops working.
 
@@ -108,8 +110,10 @@ same design holds (the IndexedDB adapter keeps the FTS map in memory).
 
 Limitations (documented): the web client keeps plaintext in memory while a
 workspace is unlocked; a device compromise with access to the open page can
-read content. The password is the single root of trust — lose it and the data
-is unrecoverable by design.
+read content. Use **Lock** when stepping away from the machine — it drops the
+master password from the session and clears memory held plaintext (the in-memory
+FTS index is released with it). The password is the single root of trust — lose
+it and the data is unrecoverable by design.
 
 ---
 
