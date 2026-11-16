@@ -219,7 +219,9 @@ server/：
     加密文档 JSON → computed updatedAt → adapter.putDoc → FTS 更新
   · edit(id, title, blocks)：重取文档 → 原 DEK 解封 → 重新加密 → 更新
   · delete(id)：adapter.deleteDoc + 记录墓碑 + FTS 移除
-  · get(id)/list()：分页列表（标题+更新时间，不含正文明文）
+  · get(id)/list()：get 解密单文档返回 {id,title,blocks,createdAt,
+    updatedAt}（无则 null）；list 遍历全部密文行逐一解密返回完整文档
+    列表（同构，无分页；明文仅存内存，不落盘）
   · tryDecrypt(docRow)：解封 DEK → 解文档密文 → 解析 JSON 返回块
   · plaintextForIndex(doc)：拼接标题+各块文本（含表格单元格），供 FTS
   · search(query)：(await adapter.ftsSearch(query)).map(docIdForRow)
