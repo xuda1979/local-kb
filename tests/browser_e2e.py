@@ -241,6 +241,26 @@ def main():
         snippet = driver.find_element(By.ID, "editor-area").get_attribute("value")
         check("edit persisted after reopen", KNOWN_EDIT in snippet)
 
+        # ---- P1 editor: markdown preview toggle + XSS safety (real browser)
+        # The current doc is open in the editor at this point.
+        area = driver.find_element(By.ID, "editor-area")
+        area.send_keys(
+            '\n## MD Preview Check\n**bold** `code` [bad](javascript:alert(1))\n<script>alert(1)</script>'
+        )
+        driver.find_element(By.ID, "btn-preview").click()
+        time.sleep(0.6)
+        prev = driver.find_element(By.ID, "preview")
+        inner = prev.get_attribute("innerHTML")
+        check("preview renders markdown headings", "<h2>MD Preview Check</h2>" in inner, inner[:200])
+        check("preview renders inline formatting", "<strong>bold</strong>" in inner)
+        check("preview escapes raw HTML inert", "<script>alert" not in inner and "&lt;script&gt;" in inner)
+        check("preview rejects javascript: links", "<em>bad</em>" in inner and "javascript:" not in inner)
+        check("preview toggle button flips to Edit", driver.find_element(By.ID, "btn-preview").text == "Edit")
+        driver.find_element(By.ID, "btn-preview").click()  # back to editor
+        time.sleep(0.4)
+        check("preview toggle returns to editor",
+              driver.find_element(By.ID, "editor-area").is_displayed())
+
         # ---- AC2: IndexedDB holds no plaintext
         dump = flatten_dump(get_db_dump(driver))
         for needle in [KNOWN_TITLE, "oscar-7", "48.8584N", "deflector", "Project Snowstorm"]:
