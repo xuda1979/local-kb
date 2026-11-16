@@ -13,7 +13,8 @@ touches disk, so neither the backing store nor any server can read your notes.
 - **Offline sync tape**: `.kbsync` ciphertext carry — a delete-aware LWW sync
   plane that converges two machines sharing a workspace (P3/M3).
 - **Markdown editor + preview**: dependency-free XSS-safe renderer; preview toggle
-  and unsaved-changes guard in the demo UI.
+  and unsaved-changes guard in the demo UI. Pipe tables round-trip as `table`
+  blocks through the editor and the encrypted store.
 - **Change master password**: re-key the entire vault (every DEK re-wrapped)
   without losing data; the old password stops working atomically at the end.
 
@@ -140,7 +141,7 @@ vendor/fake-indexeddb/          — vendored spec-compliant in-memory IDB
 
 ## Testing
 
-`npm test` runs 65 tests headlessly via `node --test`:
+`npm test` runs 70 tests headlessly via `node --test`:
 
 - **No-plaintext-on-disk**: after writing known strings (title, body text,
   code, master password), greps the raw SQLite bytes and IndexedDB records —
@@ -161,7 +162,8 @@ vendor/fake-indexeddb/          — vendored spec-compliant in-memory IDB
   workspace* is refused); re-applying a tape is a no-op.
 - **Markdown**: structural output for every block type (headings, lists,
   tables, fenced code…), and XSS safety — escape-first throughout plus
-  `javascript:`/`data:` link targets degraded to inert text.
+  `javascript:`/`data:` link targets degraded to inert text. Pipe tables
+  round-trip the editor ↔ encrypted-store boundary as `table` blocks.
 - **Re-key**: a wrong current password is refused with zero mutation; a
   successful rotation re-wraps every DEK, leaves the old password inert and
   the new one working with all documents intact; no plaintext (including the

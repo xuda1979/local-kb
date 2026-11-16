@@ -261,9 +261,38 @@ def main():
         check("preview toggle returns to editor",
               driver.find_element(By.ID, "editor-area").is_displayed())
 
+        # ---- table blocks: pipe rows round-trip editor -> encrypted store
+        area = driver.find_element(By.ID, "editor-area")
+        area.send_keys("\n\n| city | country |\n| --- | --- |\n| Kyoto | Japan |")
+        driver.find_element(By.ID, "btn-save").click()
+        time.sleep(1.2)
+        driver.find_element(By.ID, "btn-preview").click()
+        time.sleep(0.6)
+        prev = driver.find_element(By.ID, "preview")
+        inner = prev.get_attribute("innerHTML")
+        check("table block previews as <table>",
+              "<table>" in inner and "<th>city</th>" in inner and "<td>Kyoto</td>" in inner,
+              inner[:200])
+        driver.find_element(By.ID, "btn-preview").click()
+        time.sleep(0.4)
+        # reload the doc: blocks -> markdown must keep the pipe rows after the
+        # save/encrypt/decrypt round-trip through the store.
+        driver.refresh()
+        wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
+        pw = driver.find_element(By.ID, "pw")
+        pw.send_keys("correct horse battery staple")
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+        driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")[0].click()
+        time.sleep(1.0)
+        snippet = driver.find_element(By.ID, "editor-area").get_attribute("value")
+        check("table round-trips from encrypted store",
+              "| Kyoto | Japan |" in snippet, snippet[-300:])
+
         # ---- AC2: IndexedDB holds no plaintext
         dump = flatten_dump(get_db_dump(driver))
-        for needle in [KNOWN_TITLE, "oscar-7", "48.8584N", "deflector", "Project Snowstorm"]:
+        for needle in [KNOWN_TITLE, "oscar-7", "48.8584N", "deflector", "Project Snowstorm", "Kyoto"]:
             check(f"AC2: no plaintext ('{needle}') in IndexedDB", needle not in dump)
         docs_json = driver.execute_async_script("""
           const cb = arguments[arguments.length - 1];

@@ -40,17 +40,43 @@ export async function openKb(adapter, masterPassword) {
   };
 }
 
+// A line is a pipe-table row if it starts with `|` or contains a bare pipe —
+// the same heuristic the markdown renderer uses, so preview and block parsing
+// always agree on what is a table.
+function isTableRow(l) {
+  return l.startsWith('|') || l.includes('|');
+}
+
 export function textToBlocks(text) {
-  return text
-    .split('\n')
-    .filter((l) => l.trim())
-    .map((l) => {
-      if (/^#{1,6}\s/.test(l)) return { type: 'heading', text: l.replace(/^#{1,6}\s*/, '') };
-      if (/^\s*```/.test(l)) return { type: 'code', text: l.replace(/^\s*```\s*/, '') };
-      if (/^\s*>\s?/.test(l)) return { type: 'quote', text: l.replace(/^\s*>\s?/, '') };
-      if (/^\s*[-*]\s/.test(l)) return { type: 'paragraph', text: l };
-      return { type: 'paragraph', text: l };
-    });
+  const blocks = [];
+  const tableGroup = [];
+  const flushTable = () => {
+    if (tableGroup.length) {
+      blocks.push({ type: 'table', text: tableGroup.join('\n') });
+      tableGroup.length = 0;
+    }
+  };
+
+  for (const raw of text.split('\n')) {
+    const l = raw.trim();
+    if (!l) {
+      flushTable();
+      continue;
+    }
+    // Consecutive pipe rows (header, separator, body) group into one table
+    // block; they round-trip verbatim through blocksToMarkdown.
+    if (isTableRow(l)) {
+      tableGroup.push(l);
+      continue;
+    }
+    flushTable();
+    if (/^#{1,6}\s/.test(l)) blocks.push({ type: 'heading', text: l.replace(/^#{1,6}\s*/, '') });
+    else if (/^```/.test(l) || /^~~~/.test(l)) blocks.push({ type: 'code', text: l.replace(/^(```|~~~)\s*/, '') });
+    else if (/^>\s?/.test(l)) blocks.push({ type: 'quote', text: l.replace(/^>\s?/, '') });
+    else blocks.push({ type: 'paragraph', text: l });
+  }
+  flushTable();
+  return blocks;
 }
 
 export function blocksToMarkdown(blocks) {
