@@ -203,10 +203,13 @@ server/：
   · SQLiteBackend 实现适配器接口：
       workspace.rows   getParams/saveParams
       meta             getMeta/setMeta；deleteMeta
-      docs             listDocs/getDoc(含墓碑判定)/putDoc(upsert)/
-                       deleteDoc/markDeleted（写墓碑）
+      docs             listDocs/getDoc/putDoc(upsert)/deleteDoc（纯行操作，
+                       getDoc 无墓碑判定）/ markDeleted（写墓碑，值＝
+                       文档删除时刻 updatedAt）
       fts              ftsPut/ftsDelete/ftsSearch（内存 FTS5）
-      tombstones       listTombstones
+      tombstones       listTombstones（墓碑判定的消费方是 bak.js importKB
+                       与 sync.js applyTape，依据 listTombstones 跳过旧
+                       备份/压制过期磁带）
   · 内存 FTS5：docs_fts 虚拟表（content 列 tokenize='porter'），
     _rowidFor/docIdForRow 维护单调 rowid↔docId 映射，杜绝 rowid
     重用导致索引串号；ftsSearch 对恶意/畸形查询 try/catch 返回空集
