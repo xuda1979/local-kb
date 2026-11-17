@@ -339,8 +339,15 @@ def main():
         # ---- P1 editor: markdown preview toggle + XSS safety (real browser)
         # The current doc is open in the editor at this point.
         area = driver.find_element(By.ID, "editor-area")
+        # 用户手册 3.5: preview 支持 fenced code (``` / ~~~)、无序与有序列表、
+        # 引用（含嵌套层级 ">>"），并自动屏蔽 javascript:、data: 等危险链接。
         area.send_keys(
             '\n## MD Preview Check\n**bold** `code` [bad](javascript:alert(1))\n<script>alert(1)</script>'
+            '\n```\nconst x = 1;\n```\n'
+            '\n- alpha\n- beta\n'
+            '\n1. first\n2. second\n'
+            '\n> quote\n>> nested\n'
+            '\n[data](data:image/png;base64,AAAA)'
         )
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.6)
@@ -350,6 +357,17 @@ def main():
         check("preview renders inline formatting", "<strong>bold</strong>" in inner)
         check("preview escapes raw HTML inert", "<script>alert" not in inner and "&lt;script&gt;" in inner)
         check("preview rejects javascript: links", "<em>bad</em>" in inner and "javascript:" not in inner)
+        check("preview renders fenced code block",
+              "<pre><code>const x = 1;</code></pre>" in inner, inner[:200])
+        check("preview renders unordered list",
+              "<ul><li>alpha</li><li>beta</li></ul>" in inner)
+        check("preview renders ordered list",
+              "<ol><li>first</li><li>second</li></ol>" in inner)
+        check("preview renders quote with nested depth",
+              "<blockquote>quote</blockquote>" in inner
+              and "<blockquote>&gt; nested</blockquote>" in inner, inner[:300])
+        check("preview masks data: links as inert text",
+              "<em>data</em>" in inner and "data:image/png" not in inner, inner[:300])
         check("preview toggle button flips to Edit", driver.find_element(By.ID, "btn-preview").text == "Edit")
         driver.find_element(By.ID, "btn-preview").click()  # back to editor
         time.sleep(0.4)
