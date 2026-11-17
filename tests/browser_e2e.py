@@ -1622,6 +1622,95 @@ def main():
               rk2.get("newAuthOk") is True and rk2.get("oldAuthDenied") is True,
               "new-auth=%s old-denied=%s" % (rk2.get("newAuthOk"), rk2.get("oldAuthDenied")))
 
+        # ---- FAQ Q1 + 3.1 安全提示: no recovery, and nothing recoverable is
+        # stored (manual 5.3 Q1: "按设计无法找回。主密码为唯一解密凭据，系统不
+        # 保存任何可恢复信息"; 3.1: "系统不会也不能提供找回功能"). Two
+        # independent proofs: (a) the page exposes no forgot/reset/recover
+        # affordance anywhere (the Restore-from-.kb card is NOT one — restoring
+        # a backup still requires the master password itself), and (b) the
+        # stored verifier decrypts to a fixed PUBLIC constant
+        # (src/workspace.js VERIFIER_PLAINTEXT = 'local-kb::unlock-verifier::v1')
+        # that is identical for every vault — never the password, so the stored
+        # blob carries nothing that could be recovered into the password. The
+        # storage proof runs on a SELF-CONTAINED scratch vault; the main vault
+        # is untouched.
+        recovery_scan = driver.execute_script("""
+          const markers = ['forgot', 'reset', 'recover', '找回', '忘记', '重置'];
+          const suspects = [];
+          // every interactive control that could double as a recovery entry
+          // point. The #log div is not interactive and is excluded, so log
+          // tips like "…can never be recovered" cannot false-positive here.
+          for (const el of document.querySelectorAll(
+              'button, a, input, select, textarea, [role="button"], [onclick]')) {
+            const hay = ((el.textContent || '') + ' ' + (el.id || '') + ' ' +
+              (el.getAttribute('placeholder') || '') + ' ' + (el.getAttribute('title') || '') + ' ' +
+              (el.getAttribute('aria-label') || '') + ' ' + (el.className || '')).toLowerCase();
+            for (const m of markers) {
+              if (hay.includes(m)) {
+                suspects.push(m + '->' + (el.id || el.tagName) + ':' + hay.trim().slice(0, 80));
+              }
+            }
+          }
+          const idHits = Array.from(document.querySelectorAll('[id]'))
+            .map((e) => e.id)
+            .filter((id) => /forgot|reset|recover|找回|忘记|重置/i.test(id));
+          return { suspects, idHits };
+        """)
+        rs = json.loads(json.dumps(recovery_scan))
+        check("recovery: no forgot/reset/recover affordance anywhere in the UI (manual 3.1/Q1)",
+              (not rs.get("suspects")) and (not rs.get("idHits")),
+              "suspects=%r idHits=%r" % (rs.get("suspects"), rs.get("idHits")))
+
+        q1_probe = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { createKb } = await import('/src/factory.js');
+            const { VERIFIER_PLAINTEXT, unlockWorkspace } = await import('/src/workspace.js');
+            const { deriveKeyBytes, deriveWorkspaceKey, importAesGcm, decrypt, utf8d } =
+              await import('/src/crypto.js');
+            const Q1_PW = 'q1-password-probe-19x7';
+            const scratch = new IndexedDBBackend('local-kb-scratch-q1');
+            await createKb(scratch, Q1_PW, 'q1-probe-ws');
+            const params = await scratch.getParams();
+            const record = JSON.stringify(params);
+            // re-derive the key exactly as unlockWorkspace would, then open the
+            // verifier blob directly and read what it decrypts to
+            const rawKey = new Uint8Array(
+              await deriveKeyBytes(Q1_PW, params.salt, params.iterations));
+            const wsKey = new Uint8Array(await deriveWorkspaceKey(rawKey, params.name));
+            const handle = await importAesGcm(wsKey);
+            let verifierText = null;
+            try {
+              verifierText = utf8d.decode(
+                await decrypt(handle, params.verifier.iv, params.verifier.data));
+            } catch (e) {}
+            const wrong = await unlockWorkspace(params, 'not the password');
+            const right = await unlockWorkspace(params, Q1_PW);
+            return cb({
+              decryptsToConstant: verifierText === VERIFIER_PLAINTEXT,
+              plaintextIsConstant: VERIFIER_PLAINTEXT === 'local-kb::unlock-verifier::v1',
+              notThePassword: verifierText !== Q1_PW,
+              passwordAbsentFromRecord: !record.includes(Q1_PW),
+              constantAbsentFromRecord: !record.includes(VERIFIER_PLAINTEXT),
+              wrongPwRefused: wrong.ok === false,
+              rightPwAccepted: right.ok === true,
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """)
+        q1 = json.loads(json.dumps(q1_probe))
+        check("recovery: verifier decrypts to a fixed public constant, never the password (manual 5.3 Q1)",
+              q1.get("decryptsToConstant") is True and q1.get("plaintextIsConstant") is True and
+              q1.get("notThePassword") is True,
+              "to-constant=%s not-password=%s" % (q1.get("decryptsToConstant"), q1.get("notThePassword")))
+        check("recovery: stored workspace record holds no password or verifier plaintext (manual 5.3 Q1)",
+              q1.get("passwordAbsentFromRecord") is True and q1.get("constantAbsentFromRecord") is True,
+              "pw-in-record=%s const-in-record=%s" %
+              (q1.get("passwordAbsentFromRecord") is False, q1.get("constantAbsentFromRecord") is False))
+        check("recovery: verifier gate still refuses a wrong password (soundness, manual 3.1/Q1)",
+              q1.get("wrongPwRefused") is True and q1.get("rightPwAccepted") is True,
+              "wrong=%s right=%s" % (q1.get("wrongPwRefused"), q1.get("rightPwAccepted")))
+
         # ---- Lock: drop the master password from the session and clear memory
         driver.find_element(By.ID, "btn-lock").click()
         wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
