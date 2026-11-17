@@ -1785,6 +1785,90 @@ def main():
           document.dispatchEvent(new MouseEvent('mousemove'));
         """)
 
+        # ---- FAQ Q7: unlocked plaintext lives only in page memory/tab (manual Q7)
+        # "解锁状态下文档明文仅存在于本机内存与页签中，用于编辑与检索；关闭页面
+        #  或锁定后即释放" — two co-observed halves: (a) while unlocked, the saved
+        # doc plaintext (incl. the auto-saved IDLE-AUTOSAVE-PROOF canary) sits in
+        # the editor DOM and the in-memory FTS index, yet appears in NONE of the
+        # browser's persistence surfaces (IndexedDB, sessionStorage, localStorage);
+        # (b) after the Lock button the in-page copy is released and a re-sweep of
+        # the same surfaces stays clean — nothing on disk ever held recoverable
+        # plaintext. The main vault is only read, never written, by this block.
+        driver.find_element(By.CSS_SELECTOR, "#doc-list .doc-row").click()
+        wait_for(driver, lambda d: "IDLE-AUTOSAVE-PROOF" in
+                 d.find_element(By.ID, "editor-area").get_attribute("value"), 12)
+
+        q7_js = """
+        const cb = arguments[arguments.length - 1];
+        (async () => {
+          const editor = document.getElementById('editor-area').value;
+          const title = document.getElementById('editor-title').value;
+          const ls = {};
+          for (let i = 0; i < localStorage.length; i++) {
+            const k = localStorage.key(i); ls[k] = localStorage.getItem(k);
+          }
+          const ss = {};
+          for (let i = 0; i < sessionStorage.length; i++) {
+            const k = sessionStorage.key(i); ss[k] = sessionStorage.getItem(k);
+          }
+          const req = indexedDB.open('local-kb');
+          const db = await new Promise((res) => {
+            req.onsuccess = () => res(req.result);
+            req.onerror = () => res(null);
+          });
+          const recs = {};
+          if (db) {
+            for (const n of ['workspace', 'docs', 'meta']) {
+              recs[n] = await new Promise((res) => {
+                const q = db.transaction(n, 'readonly').objectStore(n).getAll();
+                q.onsuccess = () => res(q.result);
+                q.onerror = () => res([]);
+              });
+            }
+            db.close();
+          }
+          cb({ editor, title, ls, ss, recs });
+        })().catch((e) => cb({ error: String(e) }));
+        """
+        q7 = json.loads(json.dumps(driver.execute_async_script(q7_js), default=str))
+        q7_needles = ["IDLE-AUTOSAVE-PROOF", "48.8584N", "oscar-7", "deflector",
+                      KNOWN_BODY, "rendezvous coordinates", "Snowstorm"]
+        q7_persist = json.dumps(
+            {"ls": q7.get("ls"), "ss": q7.get("ss"), "recs": q7.get("recs")},
+            default=str,
+        )
+        check("Q7: unlocked plaintext is present in page memory (editor shows the saved canary)",
+              "IDLE-AUTOSAVE-PROOF" in q7.get("editor", ""), q7.get("editor", "")[-80:])
+        q7_hits = [n for n in q7_needles if n in q7_persist]
+        check("Q7: doc plaintext absent from IndexedDB + session/localStorage (manual FAQ Q7)",
+              len(q7_hits) == 0, f"hits={q7_hits}")
+        check("Q7: doc title also absent from every persistence surface (manual FAQ Q7)",
+              KNOWN_TITLE not in q7_persist)
+
+        # release half: the Lock button purges the in-page copies (editor/DOM
+        # clearing is pinned above); the new proof is that a post-lock re-sweep
+        # of all three persistence surfaces is still plaintext-free
+        driver.find_element(By.ID, "btn-lock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+        q7l = json.loads(json.dumps(driver.execute_async_script(q7_js), default=str))
+        q7l_editor = q7l.get("editor", "")
+        q7l_persist = json.dumps(
+            {"ls": q7l.get("ls"), "ss": q7l.get("ss"), "recs": q7l.get("recs")},
+            default=str,
+        )
+        q7l_hits = [n for n in q7_needles if n in q7l_persist]
+        check("Q7: after lock the RAM/DOM copy is released and storage is still clean (manual FAQ Q7)",
+              q7l_editor == "" and len(q7l_hits) == 0,
+              f"editor_len={len(q7l_editor)} hits={q7l_hits}")
+
+        # re-unlock to restore the app state the delete block expects
+        pw = driver.find_element(By.ID, "pw")
+        pw.clear()
+        pw.send_keys(NEW_PW)
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+
         # IndexedDB must hold ciphertext only, with no new-password plaintext
         dump = flatten_dump(get_db_dump(driver))
         for needle in [NEW_PW, "correct horse battery staple"]:
