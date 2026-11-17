@@ -2315,6 +2315,74 @@ console.log(out.join(" "));
         finally:
             _d10.quit()
 
+        # ---- 用户手册 2.4 卸载: browser mode "区别于删除部署目录，如需彻底清除
+        # 本地数据…删除 IndexedDB 数据库（或以浏览器'清除站点数据'完成)"。
+        # Pin the app side of that contract on an isolated fresh profile: dropping
+        # the local database must behave as if the software was never installed —
+        # the lock screen returns, the old master password no longer opens anything
+        # (openKb 'no-workspace', main.js:427), the create-vault gate no longer
+        # fires (main.js:447), and the old document's ciphertext is gone. We reload
+        # after locking first so no live IndexedDB connection is open when the
+        # delete runs (a held connection would make deleteDatabase block).
+        _opts11 = Options()
+        _opts11.headless = True
+        _opts11.binary_location = fb
+        _opts11.set_preference("dom.indexedDB.enabled", True)
+        _d11 = webdriver.Firefox(options=_opts11)
+        try:
+            _d11.get(BASE + "/")
+            wait_for(_d11, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _d11.find_element(By.ID, "wsname").send_keys("cycle11-rm-ws")
+            _d11.find_element(By.ID, "pw2").send_keys("cycle11 removal pw")
+            _d11.find_element(By.ID, "pw2b").send_keys("cycle11 removal pw")
+            _d11.find_element(By.ID, "btn-create").click()
+            wait_for(_d11, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+            wait_for(_d11, EC.visibility_of_element_located((By.ID, "btn-new")), 12)
+            _d11.find_element(By.ID, "btn-new").click()
+            time.sleep(0.8)
+            _d11.find_element(By.ID, "editor-title").clear()
+            _d11.find_element(By.ID, "editor-title").send_keys("cycle11 old doc")
+            _d11.find_element(By.ID, "editor-area").clear()
+            _d11.find_element(By.ID, "editor-area").send_keys("plaintext that must not survive site-data removal")
+            _d11.find_element(By.ID, "btn-save").click()
+            time.sleep(1.2)
+            _d11.find_element(By.ID, "btn-lock").click()
+            wait_for(_d11, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            # Reload once so the app context (and its open IndexedDB connection)
+            # is fully gone, then delete the database the way DevTools
+            # "应用程序 → IndexedDB" / "清除站点数据" does.
+            _d11.refresh()
+            wait_for(_d11, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _del11 = _d11.execute_async_script(
+                "const done = arguments[arguments.length - 1];"
+                "const req = indexedDB.deleteDatabase('local-kb');"
+                "req.onsuccess = () => done('ok');"
+                "req.onerror = () => done('err:' + (req.error && req.error.name));"
+                "req.onblocked = () => done('blocked');")
+            check("manual 2.4: IndexedDB database delete resolves (site-data removal)",
+                  _del11 == "ok", _del11)
+            _d11.refresh()
+            wait_for(_d11, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _d11.find_element(By.ID, "pw").send_keys("cycle11 removal pw")
+            _d11.find_element(By.ID, "btn-unlock").click()
+            time.sleep(1.2)
+            _log11 = _d11.find_element(By.ID, "log").text
+            check("manual 2.4: old master password is refused after removal (vault is gone)",
+                  "Wrong master password" in _log11, _log11)
+            _d11.find_element(By.ID, "wsname").send_keys("cycle11-fresh-ws")
+            _d11.find_element(By.ID, "pw2").send_keys("cycle11 fresh pw")
+            _d11.find_element(By.ID, "pw2b").send_keys("cycle11 fresh pw")
+            _d11.find_element(By.ID, "btn-create").click()
+            wait_for(_d11, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+            _label11 = _d11.find_element(By.ID, "ws-label").text
+            check("manual 2.4: a fresh vault can be created after removal (no vault-already-exists gate)",
+                  "cycle11-fresh-ws" in _label11, _label11)
+            _list11 = _d11.find_element(By.ID, "doc-list").text
+            check("manual 2.4: removed database leaves no resurrected documents",
+                  "cycle11 old doc" not in _list11 and "No documents yet" in _list11, _list11)
+        finally:
+            _d11.quit()
+
     finally:
         driver.quit()
 
