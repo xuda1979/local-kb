@@ -949,6 +949,38 @@ def main():
             rows2 = driver2.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
             check("restore: refused restore left the existing vault intact",
                   any(KNOWN_TITLE in (r.text or "") for r in rows2), [r.text for r in rows2])
+
+            # ---- lock-screen restore merge for the *same* workspace
+            # (用户手册 3.7 场景一: "若当前浏览器已存在同一工作区（盐值相同）则会先
+            # 确认再合并导入" — the positive branch: lock the existing vault back,
+            # feed it the *unmodified* backup of the same workspace (byte-identical
+            # salt, so the derived workspace key matches), and the lock screen must
+            # arm the merge confirm, then merge without duplicating the doc.
+            driver2.refresh()
+            wait_for(driver2, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            driver2.execute_script("""
+              const f = new File([new Uint8Array(arguments[0])], 'same-restore.kb',
+                                 { type: 'application/json' });
+              const dt = new DataTransfer();
+              dt.items.add(f);
+              const inp = document.getElementById('restore-file');
+              inp.files = dt.files;
+              inp.dispatchEvent(new Event('change', { bubbles: true }));
+            """, list(kb_bytes))
+            driver2.find_element(By.ID, "restore-pw").send_keys("correct horse battery staple")
+            driver2.find_element(By.ID, "btn-restore").click()
+            # a same-salt backup over an existing vault arms the merge confirm —
+            # unlike the foreign-salt refusal above, this pauses for the user
+            wait_for(driver2, EC.alert_is_present(), 6)
+            driver2.switch_to.alert.accept()  # confirm: "…Merge the backup into it?"
+            wait_for(driver2, EC.visibility_of_element_located((By.ID, "view-app")), 15)
+            mount_rows = driver2.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            t2 = [r.text for r in mount_rows]
+            check("restore: same-salt backup merges at the lock screen confirm (manual 3.7 场景一)",
+                  len(mount_rows) == 1 and KNOWN_TITLE in (t2[0] or ""), t2)
+            log2 = driver2.find_element(By.ID, "log").text
+            check("restore: merged log confirms the restore by document count",
+                  "Restored .kb backup" in log2, log2)
         finally:
             driver2.quit()
 
