@@ -526,6 +526,28 @@ def main():
             driver2.get(BASE + "/")
             wait_for(driver2, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
             check("restore: fresh profile shows the lock screen", True)
+            # A malformed envelope that still passes deserializeKB (app id set but
+            # no workspace / no documents) must be refused with a message, not
+            # crash restoreKBFile on kb.workspace.salt / kb.documents.length —
+            # and must leave the fresh profile vault-less for the real restore.
+            broken_bytes = json.dumps({"app": "local-kb", "format": 1}).encode("utf-8")
+            driver2.execute_script("""
+              const f = new File([new Uint8Array(arguments[0])], 'broken.kb',
+                                 { type: 'application/json' });
+              const dt = new DataTransfer();
+              dt.items.add(f);
+              const inp = document.getElementById('restore-file');
+              inp.files = dt.files;
+              inp.dispatchEvent(new Event('change', { bubbles: true }));
+            """, list(broken_bytes))
+            driver2.find_element(By.ID, "restore-pw").send_keys("correct horse battery staple")
+            driver2.find_element(By.ID, "btn-restore").click()
+            time.sleep(1.2)
+            log2 = driver2.find_element(By.ID, "log").text
+            check("restore: malformed .kb refused cleanly on the lock screen",
+                  "Restore refused" in log2 and "broken" in log2, log2)
+            check("restore: refused .kb left the fresh profile locked",
+                  driver2.find_element(By.ID, "view-unlock").is_displayed())
             # hand the .kb backup to the hidden file input the same way a real
             # <input type=file> change event does
             driver2.execute_script("""
@@ -537,7 +559,9 @@ def main():
               inp.files = dt.files;
               inp.dispatchEvent(new Event('change', { bubbles: true }));
             """, list(kb_bytes))
-            driver2.find_element(By.ID, "restore-pw").send_keys("correct horse battery staple")
+            rpw = driver2.find_element(By.ID, "restore-pw")
+            rpw.clear()  # the broken attempt above already typed a password
+            rpw.send_keys("correct horse battery staple")
             driver2.find_element(By.ID, "btn-restore").click()
             wait_for(driver2, EC.alert_is_present(), 6)
             driver2.switch_to.alert.accept()  # confirm: create the vault from the backup

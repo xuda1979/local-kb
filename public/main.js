@@ -253,7 +253,7 @@ async function importKBFile(file) {
     state.store = res.store;
     state.params = res.params;
     await refreshDocList(state.store);
-    log('Imported ' + kb.documents.length + ' docs.');
+    log('Imported ' + count + ' docs.');
   } else {
     log('Import done, but unlock failed.', true);
   }
@@ -469,14 +469,24 @@ async function restoreKBFile() {
   } catch (err) {
     return log('Restore refused: ' + err.message, true);
   }
+  // deserializeKB only checks the app id, but the salt gate below (and the
+  // confirm copy) need the workspace; importKB would throw the same way, so
+  // refuse up front instead of crashing on a malformed envelope. A backup
+  // without a documents array is still restorable (an empty vault) — the
+  // count just reads as zero.
+  const ws = kb.workspace;
+  if (!ws || !ws.salt || !ws.verifier) {
+    return log('Restore refused: broken .kb file (missing workspace).', true);
+  }
+  const docCount = Array.isArray(kb.documents) ? kb.documents.length : 0;
   const db = new IndexedDBBackend();
   const existing = await db.getParams();
-  if (existing && existing.salt !== kb.workspace.salt) {
+  if (existing && existing.salt !== ws.salt) {
     return log('Restore refused: a different workspace already exists here. Export a fresh .kb ' +
       'from that workspace to move it instead.', true);
   }
-  if (existing && existing.salt === kb.workspace.salt && !confirm('This browser already has this workspace. Merge the backup into it?')) return;
-  if (!existing && !confirm('This will create a new vault from the backup (' + kb.documents.length +
+  if (existing && existing.salt === ws.salt && !confirm('This browser already has this workspace. Merge the backup into it?')) return;
+  if (!existing && !confirm('This will create a new vault from the backup (' + docCount +
       ' docs). Only the master password you type is used — the backup workspace becomes this vault.')) return;
 
   try {
@@ -490,7 +500,7 @@ async function restoreKBFile() {
   }
   sessionStorage.setItem('local-kb-pw', pw);
   await enterApp(res.store, res.params);
-  log('Restored .kb backup: ' + kb.documents.length + ' docs.');
+  log('Restored .kb backup: ' + docCount + ' docs.');
 }
 
 function bind() {
