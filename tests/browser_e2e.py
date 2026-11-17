@@ -522,6 +522,20 @@ def main():
         rows = search_hits("zanzibarbazooka")
         check("AC5: search returns nothing for an absent token",
               not any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        # 用户手册 5.1 故障 4: "检查检索词是否包含超出分词规则的符号" — a
+        # hyphenated token must still hit (the body holds "access code oscar-7"),
+        # and a punctuation-only query must degrade to an empty list rather than
+        # break the page (unit-level FTS-hardening pins the same on SQLite/FTS5:
+        # "a valid query still works afterwards"). Search must stay functional.
+        rows = search_hits("oscar-7")
+        check("AC5: a hyphenated token (oscar-7) still matches",
+              any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        rows = search_hits('"-*(')
+        check("AC5: a punctuation-only query yields no hits without crashing",
+              not any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        rows = search_hits("oscar")
+        check("AC5: search still works after a punctuation-only query",
+              any(KNOWN_TITLE in (t or "") for t in rows), rows)
         # Restore the full list deterministically: an empty-query Go click runs
         # doSearch -> refreshDocList (the debounced input handler alone leaves
         # the previous "No matches." list in place until it fires). The import

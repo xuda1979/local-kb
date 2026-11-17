@@ -49,7 +49,7 @@ export async function deriveUnlockKey(password, saltB64, iterations = PBKDF2_ITE
 export async function deriveKeyBytes(
   password,
   saltB64,
-第 1 页 / 共 81 页
+第 1 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
   iterations = PBKDF2_ITERATIONS,
@@ -102,7 +102,7 @@ export async function encrypt(key, plaintextBytes) {
   const ct = new Uint8Array(
     await getCrypto().subtle.encrypt({ name: 'AES-GCM', iv }, key, plaintextBytes)
   );
-第 2 页 / 共 81 页
+第 2 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
   return { iv: toBase64(iv), data: toBase64(ct) };
@@ -155,7 +155,7 @@ export async function unlockWorkspace(params, masterPassword) {
   try {
     const rawKey = new Uint8Array(
       await deriveKeyBytes(masterPassword, params.salt, params.iterations)
-第 3 页 / 共 81 页
+第 3 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     );
@@ -208,7 +208,7 @@ export class DocStore {
       dekIv: wrapped.iv,
       dekData: wrapped.data,
       iv: ciphertext.iv,
-第 4 页 / 共 81 页
+第 4 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
       data: ciphertext.data,
@@ -261,7 +261,7 @@ export class DocStore {
   }
   async get(id) {
     const found = await this.db.getDoc(id);
-第 5 页 / 共 81 页
+第 5 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     if (!found) return null;
@@ -314,7 +314,7 @@ export class SQLiteBackend {
     this.db = new DatabaseSync(absPath || ':memory:');
     this.init(this.db);
     this.ftsDb = new DatabaseSync(':memory:');
-第 6 页 / 共 81 页
+第 6 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     this.initFts(this.ftsDb);
@@ -367,7 +367,7 @@ export class SQLiteBackend {
     try {
       this.ftsDb.close();
     } catch {}
-第 7 页 / 共 81 页
+第 7 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
   }
@@ -420,7 +420,7 @@ export class SQLiteBackend {
     const rows = this.db
       .prepare("SELECT key, value FROM meta WHERE key LIKE 'tombstone:%'")
       .all();
-第 8 页 / 共 81 页
+第 8 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     return rows.map((r) => ({ id: r.key.slice('tombstone:'.length), updatedAt: r.value }));
@@ -473,7 +473,7 @@ export class SQLiteBackend {
   }
   async ftsDelete(docId) {
     const rid = await this._rowidFor(docId);
-第 9 页 / 共 81 页
+第 9 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     this.ftsDb.prepare('DELETE FROM docs_fts WHERE rowid = ?').run(rid);
@@ -526,7 +526,7 @@ export function exportKB(params, docs) {
 export function serializeKB(kb) {
   return new TextEncoder().encode(JSON.stringify(kb, null, 2));
 }
-第 10 页 / 共 81 页
+第 10 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
 export function deserializeKB(buf) {
@@ -579,7 +579,7 @@ export async function importKB(adapter, kb) {
   }
   return { params: ws, imported, skipped, duplicate };
 }
-第 11 页 / 共 81 页
+第 11 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
 // ===== 文件: src/rekey.js  =====
@@ -632,7 +632,7 @@ import {
   deriveWorkspaceKey,
 } from './crypto.js';
 import { createWorkspace, unlockWorkspace } from './workspace.js';
-第 12 页 / 共 81 页
+第 12 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
 import { DocStore } from './store.js';
@@ -685,7 +685,7 @@ export function textToBlocks(text) {
   const lines = text.split('\n');
   for (let i = 0; i < lines.length; ) {
     const l = lines[i].trim();
-第 13 页 / 共 81 页
+第 13 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     if (!l) {
@@ -738,7 +738,7 @@ export function blocksToMarkdown(blocks) {
 export { createDoc, nowISO, uuid };
 // ===== 文件: src/docmodel.js  =====
 import { nowISO } from './util.js';
-第 14 页 / 共 81 页
+第 14 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
 export const BLOCK_TYPES = ['title', 'paragraph', 'heading', 'code', 'quote', 'table'];
@@ -791,7 +791,7 @@ export function mergeTape(a, b) {
   );
 }
 export async function applyTape(tape, adapter) {
-第 15 页 / 共 81 页
+第 15 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
   const now = Date.now();
@@ -844,7 +844,7 @@ export async function applyTape(tape, adapter) {
     if (!e.dekIv || !e.dekData || !e.iv || !e.data) {
       skipped++;
       continue;
-第 16 页 / 共 81 页
+第 16 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     }
@@ -897,7 +897,7 @@ export async function localTape(adapter) {
   }
   return entries;
 }
-第 17 页 / 共 81 页
+第 17 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
 // ===== 文件: src/syncfile.js  =====
@@ -950,7 +950,7 @@ export async function applyTapeFile(adapter, tape) {
   if (!Array.isArray(tape.entries)) throw new Error('broken sync tape: no entries');
   const existing = await adapter.getParams();
   assertSameWorkspace(existing, tape);
-第 18 页 / 共 81 页
+第 18 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
   return applyTape(tape.entries, adapter);
@@ -1003,7 +1003,7 @@ export { SQLiteBackend } from './db.js';
     input[type=password], input[type=text], textarea {
       width: 100%; background: #12161d; color: #e6e8eb; border: 1px solid #2a303a;
       border-radius: 8px; padding: 10px 12px; margin: 8px 0 12px; font: inherit;
-第 19 页 / 共 81 页
+第 19 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     }
@@ -1056,7 +1056,7 @@ export { SQLiteBackend } from './db.js';
       <input type="password" id="pw2b" placeholder="Repeat master password" autocomplete="new-password" />
       <button id="btn-create">Create vault</button>
       <p class="muted">Losing the master password means losing your data — it is never stored.</p>
-第 20 页 / 共 81 页
+第 20 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     </div>
@@ -1109,7 +1109,7 @@ export { SQLiteBackend } from './db.js';
             <button id="btn-delete" class="danger">Delete</button>
           </div>
         </div>
-第 21 页 / 共 81 页
+第 21 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
         <textarea id="editor-area" placeholder="Markdown… `code`, **bold**, [link](url), `` ```js … ``` `"></textarea>
@@ -1162,7 +1162,7 @@ export function renderInline(text) {
   out = out.replace(/(^|[^*])\*([^*\n]+)\*(?!\*)/g, '$1<em>$2</em>');
   out = out.replace(
     /\[([^\]\n]+)\]\(((?:[^()\s]|\([^()]*\))*)\)/g,
-第 22 页 / 共 81 页
+第 22 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     (_, label, target) => {
@@ -1215,7 +1215,7 @@ export function renderMarkdown(src) {
   const open = (t) => html.push(t);
   const close = (t) => html.push(t);
   let listType = null; // 'ul' | 'ol' | null
-第 23 页 / 共 81 页
+第 23 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
   let inTable = false;
@@ -1268,7 +1268,7 @@ export function renderMarkdown(src) {
       closeTable();
       flushList();
       html.push('<hr>');
-第 24 页 / 共 81 页
+第 24 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
       continue;
@@ -1321,7 +1321,7 @@ export function renderMarkdown(src) {
       }
       const cells = splitRowCells(line).map((c) => renderInline(c.trim()));
       if (!inTable) {
-第 25 页 / 共 81 页
+第 25 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
         inTable = true;
@@ -1374,7 +1374,7 @@ export class IndexedDBBackend {
       const db = await this.ready();
       const tr = db.transaction(store, 'readonly');
       const req = tr.objectStore(store).get(key);
-第 26 页 / 共 81 页
+第 26 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
       req.onsuccess = () => resolve(req.result ?? null);
@@ -1427,7 +1427,7 @@ export class IndexedDBBackend {
   async listDocs() {
     const all = await this.idbAll('docs');
     return all.map((d) => ({ id: d.id }));
-第 27 页 / 共 81 页
+第 27 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
   }
@@ -1480,7 +1480,7 @@ export class IndexedDBBackend {
     }
     return out;
   }
-第 28 页 / 共 81 页
+第 28 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
 }
@@ -1533,7 +1533,7 @@ async function refreshDocList(store) {
   state.docs = docs;
   renderDocList();
 }
-第 29 页 / 共 81 页
+第 29 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
 function renderDocList() {
@@ -1586,7 +1586,7 @@ function togglePreview() {
     ta.style.display = 'none';
     $('#btn-preview').textContent = 'Edit';
   } else {
-第 30 页 / 共 81 页
+第 30 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     prev.style.display = 'none';
@@ -1639,7 +1639,7 @@ async function removeDoc() {
 }
 async function doSearch() {
   const q = $('#search-term').value.trim();
-第 31 页 / 共 81 页
+第 31 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
   if (!q) return refreshDocList(state.store);
@@ -1692,7 +1692,7 @@ async function importKBFile(file) {
     return log('Import refused: ' + err.message, true);
   }
   const count = Array.isArray(kb.documents) ? kb.documents.length : 0;
-第 32 页 / 共 81 页
+第 32 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
   if (!confirm('Import ' + count + ' docs? Existing workspace data merges.')) return;
@@ -1745,7 +1745,7 @@ async function syncInFile(file) {
   if (reopened.ok) {
     state.store = reopened.store;
     state.params = reopened.params;
-第 33 页 / 共 81 页
+第 33 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     await refreshDocList(state.store);
@@ -1798,7 +1798,7 @@ function idleWindowMs() {
   const n = Number(window.LOCAL_KB_IDLE_MS);
   return Number.isFinite(n) && n > 0 ? n : IDLE_LOCK_MS;
 }
-第 34 页 / 共 81 页
+第 34 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
 function armIdleLock() {
@@ -1851,7 +1851,7 @@ async function unlock() {
   const res = await openKb(db, pw);
   if (!res.ok) {
     log('Wrong master password (or no vault).', true);
-第 35 页 / 共 81 页
+第 35 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     return;
@@ -1904,7 +1904,7 @@ async function restoreKBFile() {
   } catch (err) {
     return log('Restore refused: ' + err.message, true);
   }
-第 36 页 / 共 81 页
+第 36 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
   const res = await openKb(db, pw);
@@ -1957,7 +1957,7 @@ import { readFileSync, existsSync } from 'node:fs';
 import { extname, join, normalize } from 'node:path';
 const ROOT = new URL('../', import.meta.url).pathname; 
 const PUBLIC = new URL('../public/', import.meta.url).pathname;
-第 37 页 / 共 81 页
+第 37 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
 const MIME = {
@@ -2010,7 +2010,7 @@ test('export -> import on a blank machine recovers all docs', async () => {
   for (const { id } of await b.listDocs()) rows.push(await b.getDoc(id));
   const kb = exportKB(await b.getParams(), rows);
   const bytes = serializeKB(kb);
-第 38 页 / 共 81 页
+第 38 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
   b.close();
@@ -2063,7 +2063,7 @@ BASE = os.environ.get("KB_BASE", "http://127.0.0.1:4242")
 def find_firefox_binary():
     """Locate a Firefox executable usable by geckodriver/selenium.
     On Ubuntu, /usr/bin/firefox is a wrapper script for the snap, which
-第 39 页 / 共 81 页
+第 39 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
     selenium rejects ("binary is not a Firefox executable"). Allow an
@@ -2116,7 +2116,7 @@ def get_db_dump(driver):
       for (const n of names) {
         all[n] = await new Promise((res) => {
           const tx = db.transaction(n, 'readonly');
-第 40 页 / 共 81 页
+第 40 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
           const q = tx.objectStore(n).getAll();
@@ -2169,7 +2169,7 @@ def main():
         )
         check("demo page loads offline (unlock view present)", True)
         driver.find_element(By.ID, "btn-unlock").click()
-第 41 页 / 共 81 页
+第 41 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
         time.sleep(1.2)
@@ -2222,7 +2222,7 @@ def main():
         driver.find_element(By.ID, "btn-create").click()
         time.sleep(0.8)
         log = driver.find_element(By.ID, "log").text
-第 42 页 / 共 81 页
+第 42 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
         check("create refused with no workspace name", "name" in log.lower(), log)
@@ -2275,7 +2275,7 @@ def main():
         wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
         wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
         docs = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
-第 43 页 / 共 81 页
+第 43 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
         docs[0].click()
@@ -2328,7 +2328,7 @@ def main():
         time.sleep(0.3)
         check("dirty editor arms the page-leave guard",
               driver.execute_script("return window.onbeforeunload !== null"))
-第 44 页 / 共 81 页
+第 44 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
         driver.find_element(By.ID, "btn-save").click()
@@ -2381,7 +2381,7 @@ def main():
               (title_val, area_val[-120:]))
         check("new-doc prompt: no throwaway doc was created",
               not any("Untitled" in (r.text or "") for r in
-第 45 页 / 共 81 页
+第 45 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
                       driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")))
@@ -2434,7 +2434,7 @@ def main():
           })().catch((e) => cb('[]'));
         ")
         check("AC2: IndexedDB contains ciphertext records", "dekData" in docs_json)
-第 46 页 / 共 81 页
+第 46 页 / 共 82 页
 
 零知识本地知识库软件 V1.0
         search = driver.find_element(By.ID, "search-term")
@@ -2479,6 +2479,18 @@ def main():
         rows = search_hits("zanzibarbazooka")
         check("AC5: search returns nothing for an absent token",
               not any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        rows = search_hits("oscar-7")
+        check("AC5: a hyphenated token (oscar-7) still matches",
+              any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        rows = search_hits('"-*(')
+        check("AC5: a punctuation-only query yields no hits without crashing",
+              not any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        rows = search_hits("oscar")
+        check("AC5: search still works after a punctuation-only query",
+第 47 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
+              any(KNOWN_TITLE in (t or "") for t in rows), rows)
         search.clear()
         driver.find_element(By.ID, "btn-search").click()
         time.sleep(1.0)
@@ -2487,9 +2499,6 @@ def main():
               any(KNOWN_TITLE in (t.text or "") for t in rows), rows)
         export_json = driver.execute_async_script("""
           const cb = arguments[arguments.length - 1];
-第 47 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
           (async () => {
             const { IndexedDBBackend } = await import('/idb.js');
             const { exportKB } = await import('/src/bak.js');
@@ -2531,6 +2540,9 @@ def main():
         captured = driver.execute_script("""
           window.__captured = null;
           const orig = HTMLAnchorElement.prototype.click;
+第 48 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
           HTMLAnchorElement.prototype.click = function () {
             if (this.download) window.__captured = this.download;
             orig.call(this);
@@ -2540,9 +2552,6 @@ def main():
         ")
         name = driver.execute_script("return window.__captured")
         after = datetime.now(timezone.utc).replace(microsecond=0)
-第 48 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
         time.sleep(0.5)
         stamp_re = r"^local-kb-backup-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.kb$"
         check("AC4: .kb export filename embeds the export timestamp",
@@ -2584,6 +2593,9 @@ def main():
           const inp = document.getElementById('import-file');
           inp.files = dt.files;
           inp.dispatchEvent(new Event('change', { bubbles: true }));
+第 49 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
         ", list(broken_bytes))
         wait_for(driver, EC.alert_is_present(), 6)
         driver.switch_to.alert.accept()  
@@ -2593,9 +2605,6 @@ def main():
               "Import refused" in log and "broken" in log, log)
         same_kb_bytes = export_json.encode("utf-8")
         driver.execute_script("""
-第 49 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
           const f = new File([new Uint8Array(arguments[0])], 'same.kb',
                              { type: 'application/json' });
           const dt = new DataTransfer();
@@ -2637,6 +2646,9 @@ def main():
             const { openKb } = await import('/src/factory.js');
             const { buildTape, serializeTape, applyTapeFile } = await import('/src/syncfile.js');
             const db = new IndexedDBBackend();
+第 50 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
             const r = await openKb(db, 'correct horse battery staple');
             if (!r.ok) return cb({ error: 'unlock' });
             const tape = await buildTape(r.params, db);
@@ -2646,9 +2658,6 @@ def main():
             await peer.saveParams(r.params);
             const pr = await openKb(peer, 'correct horse battery staple');
             if (!pr.ok) return cb({ error: 'peer-unlock' });
-第 50 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
             const res = await applyTapeFile(peer, tape);
             const ids = (await peer.listDocs()).map((d) => d.id);
             return cb({ tapeJson: txt, applied: res.applied, peerDocs: ids.length });
@@ -2690,6 +2699,9 @@ def main():
             const { openKb } = await import('/src/factory.js');
             const { buildTape, serializeTape } = await import('/src/syncfile.js');
             const db = new IndexedDBBackend();
+第 51 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
             const r = await openKb(db, 'correct horse battery staple');
             if (!r.ok) return cb('{"error":"unlock"}');
             const tape = await buildTape(r.params, db);
@@ -2699,9 +2711,6 @@ def main():
         fresh_bytes = fresh_tape.encode("utf-8")
         driver.execute_script("""
           const f = new File([new Uint8Array(arguments[0])], 'same.kbsync',
-第 51 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
                              { type: 'application/json' });
           const dt = new DataTransfer();
           dt.items.add(f);
@@ -2743,6 +2752,9 @@ def main():
         opts2.binary_location = fb
         opts2.set_preference("dom.indexedDB.enabled", True)
         driver2 = webdriver.Firefox(options=opts2)
+第 52 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
         try:
             driver2.get(BASE + "/")
             wait_for(driver2, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
@@ -2752,9 +2764,6 @@ def main():
               const f = new File([new Uint8Array(arguments[0])], 'broken.kb',
                                  { type: 'application/json' });
               const dt = new DataTransfer();
-第 52 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
               dt.items.add(f);
               const inp = document.getElementById('restore-file');
               inp.files = dt.files;
@@ -2796,6 +2805,9 @@ def main():
         driver.find_element(By.ID, "btn-save").click()
         time.sleep(1.2)
         NEW_PW = "brand new master password 7381"
+第 53 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
         driver.find_element(By.ID, "rekey-current").send_keys("correct horse battery staple")
         driver.find_element(By.ID, "rekey-new").send_keys(NEW_PW)
         driver.find_element(By.ID, "rekey-confirm").send_keys(NEW_PW)
@@ -2805,9 +2817,6 @@ def main():
         check("re-key: password changed (log confirms)",
               "Master password changed" in log and "re-wrapped" in log, log)
         driver.refresh()
-第 53 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
         wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
         pw = driver.find_element(By.ID, "pw")
         pw.send_keys("correct horse battery staple")
@@ -2849,6 +2858,9 @@ def main():
         area.send_keys(marker)
         time.sleep(0.3)  
         driver.execute_script("""
+第 54 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
           window.LOCAL_KB_IDLE_MS = 3000;
           document.dispatchEvent(new MouseEvent('mousemove'));
         ")
@@ -2858,9 +2870,6 @@ def main():
         pw_held = driver.execute_script("return sessionStorage.getItem('local-kb-pw');")
         check("idle auto-lock: master password dropped from session",
               pw_held is None or pw_held == "", str(pw_held))
-第 54 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
         log = driver.find_element(By.ID, "log").text
         check("idle auto-lock: log reports the inactivity lock",
               "auto-locked" in log.lower(), log)
@@ -2902,6 +2911,9 @@ def main():
         check("delete: accepting the confirm removes the doc from the list",
               len(rows) == 0, [r.text for r in rows])
         log = driver.find_element(By.ID, "log").text
+第 55 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
         check("delete: log confirms the deletion", "Document deleted." in log, log)
         title_val = driver.find_element(By.ID, "editor-title").get_attribute("value")
         check("delete: editor cleared after deletion", title_val == "", title_val)
@@ -2911,9 +2923,6 @@ def main():
         driver.refresh()
         wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
         pw = driver.find_element(By.ID, "pw")
-第 55 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
         pw.send_keys(NEW_PW)
         driver.find_element(By.ID, "btn-unlock").click()
         wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
@@ -2955,6 +2964,9 @@ test('base64url round trip preserves bytes', () => {
     for (let i = 0; i < n; i++) buf[i] = i % 256;
     const b64 = toBase64(buf);
     const back = fromBase64(b64);
+第 56 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
     assert.deepEqual(back, buf);
   }
 });
@@ -2964,9 +2976,6 @@ test('keys derive deterministically from same password+salt', async () => {
   assert.deepEqual(a, b);
 });
 test('keys differ with different password', async () => {
-第 56 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const a = new Uint8Array(await deriveKeyBytes('hunter2', 'c2FsdA'));
   const b = new Uint8Array(await deriveKeyBytes('hunter3', 'c2FsdA'));
   assert.notDeepEqual(a, b);
@@ -3008,6 +3017,9 @@ test('each document has a distinct wrapped DEK', async () => {
   await r.store.create('a', 'Doc A', [{ type: 'paragraph', text: 'aaa' }]);
   await r.store.create('b', 'Doc B', [{ type: 'paragraph', text: 'bbb' }]);
   const da = await b.getDoc('a');
+第 57 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   const db_ = await b.getDoc('b');
   assert.notEqual(da.dekIv, db_.dekIv, 'fresh random IV per DEK wrap');
   assert.notEqual(da.dekData, db_.dekData, 'distinct wrapped DEKs');
@@ -3017,9 +3029,6 @@ test('tampering with the stored verifier blocks unlock', async () => {
   const b = new SQLiteBackend(path);
   await createKb(b, PW);
   const params = await b.getParams();
-第 57 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const ver = params.verifier; 
   ver.data = (ver.data[0] === 'A' ? 'B' : 'A') + ver.data.slice(1);
   await b.saveParams({ ...params, verifier: ver });
@@ -3061,6 +3070,9 @@ test('block model round trips', () => {
   const back = deserializeDoc(json);
   assert.equal(back.title, 'Title');
   assert.equal(back.blocks.length, 5);
+第 58 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   assert.deepEqual(back.blocks[0], { type: 'heading', text: 'H1' });
 });
 test('unknown block type rejected', () => {
@@ -3070,9 +3082,6 @@ test('textToBlocks preserves headings/code/quote', () => {
   const text = `# Big heading\n\n> a quote\n\n\`\`\`\ncode here\n\`\`\`\n\njust paragraph`;
   const blocks = textToBlocks(text);
   assert.equal(blocks[0].type, 'heading');
-第 58 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   assert.equal(blocks[1].type, 'quote');
   assert.equal(blocks[2].type, 'code');
   assert.equal(blocks[2].text, '```\ncode here\n```', 'fenced body must be kept verbatim inside the code block');
@@ -3114,6 +3123,9 @@ test('heading levels #..###### round-trip losslessly (user manual 3.5)', () => {
     '##### Five',
     '###### Six',
   ].join('\n');
+第 59 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   const blocks = textToBlocks(text);
   assert.equal(blocks.length, 6);
   for (let i = 0; i < 6; i++) {
@@ -3123,9 +3135,6 @@ test('heading levels #..###### round-trip losslessly (user manual 3.5)', () => {
   }
   assert.equal(blocksToMarkdown(blocks), text);
   assert.deepEqual(textToBlocks(blocksToMarkdown(blocks)), blocks);
-第 59 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 });
 test('nested quotes (>>) keep their depth on round-trip', () => {
   const blocks = textToBlocks('> outer\n>> nested\n> back');
@@ -3167,6 +3176,9 @@ test('textToBlocks groups consecutive pipe rows into one table block', () => {
 });
 test('table block round-trips through markdown and renders', () => {
   const table = '| a | b |\n| --- | --- |\n| 1 | 2 |';
+第 60 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   const blocks = textToBlocks('intro\n\n' + table);
   assert.equal(blocks.filter((b) => b.type === 'table').length, 1);
   const md = blocksToMarkdown(blocks); 
@@ -3176,9 +3188,6 @@ test('table block round-trips through markdown and renders', () => {
   assert.ok(html.includes('<th>a</th>'));
   assert.ok(html.includes('<td>2</td>'));
 });
-第 60 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 test('paragraph between tables splits them into separate blocks', () => {
   const blocks = textToBlocks('| a |\n|---|\n\nnote\n\n| c |\n|---|');
   const tables = blocks.filter((b) => b.type === 'table');
@@ -3220,6 +3229,9 @@ test('fenced code body stays searchable (user manual 3.4: 代码全文匹配)', 
   assert.ok((await r.store.search('x9k2')).some((h) => h.id === 'c1'), 'code body token must be searchable');
   assert.ok((await r.store.search('encrypt')).some((h) => h.id === 'c1'), 'code identifier must be searchable');
   b.close();
+第 61 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
 });
 test('lists round-trip verbatim as paragraph blocks (user manual 3.5)', () => {
   const ul = textToBlocks('- a\n- b\n- c');
@@ -3229,9 +3241,6 @@ test('lists round-trip verbatim as paragraph blocks (user manual 3.5)', () => {
     { type: 'paragraph', text: '- b' },
     { type: 'paragraph', text: '- c' },
   ]);
-第 61 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   assert.equal(blocksToMarkdown(ul), '- a\n- b\n- c');
   const ol = textToBlocks('1. one\n2. two');
   assert.equal(blocksToMarkdown(ol), '1. one\n2. two');
@@ -3273,6 +3282,9 @@ test('monotonic rowids: many docs keep distinct index slots', async () => {
 });
 // ===== 文件: tests/helpers.mjs  =====
 import { tmpdir } from 'node:os';
+第 62 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
 import { join } from 'node:path';
 import { mkdtempSync, rmSync, existsSync } from 'node:fs';
 export const KNOWN_PLAINTEXT = 'super-secret-canyon-hideout-4271';
@@ -3282,9 +3294,6 @@ export function tempDbPath() {
   return join(mkdtempSync(join(tmpdir(), 'localkb-')), 'vault.db');
 }
 export function rmrf(p) {
-第 62 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   if (existsSync(p)) rmSync(p, { recursive: true, force: true });
 }
 // ===== 文件: tests/idb.store.test.mjs  =====
@@ -3326,6 +3335,9 @@ test('AC1: full lifecycle over IndexedDB (create/edit/delete across reopen)', as
   {
     const ad2 = freshAdapter(dbName);
     const r2 = await openKb(ad2, PW);
+第 63 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
     assert.equal(r2.ok, true);
     const list = await r2.store.list();
     assert.equal(list.length, 1);
@@ -3335,9 +3347,6 @@ test('AC1: full lifecycle over IndexedDB (create/edit/delete across reopen)', as
     await r2.store.delete('d1');
     assert.equal(await r2.store.get('d1'), null);
   }
-第 63 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 });
 test('AC2: no plaintext in IndexedDB records', async () => {
   const dbName = 'ac2-' + Date.now();
@@ -3379,6 +3388,9 @@ test('AC3: wrong master password denies access over IndexedDB', async () => {
 });
 test('AC6: works with no server (pure local IndexedDB) + .kb import round-trips', async () => {
   const dbName = 'ac6-' + Date.now();
+第 64 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   const ad = freshAdapter(dbName);
   await createKb(ad, PW);
   const r = await openKb(ad, PW);
@@ -3388,9 +3400,6 @@ test('AC6: works with no server (pure local IndexedDB) + .kb import round-trips'
   const kb = exportKB(await ad.getParams(), rows);
   const bytes = serializeKB(kb);
   const db2 = freshAdapter(dbName + '-import');
-第 64 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const parsed = deserializeKB(bytes);
   await importKB(db2, parsed);
   const r2 = await openKb(db2, PW);
@@ -3432,6 +3441,9 @@ test('multi-word search: space-separated keywords AND-match (user manual 3.4 技
 });
 test('fake-indexeddb exposes IDB globals', () => {
   assert.ok(indexedDB && typeof indexedDB.open === 'function', 'indexedDB global with open()');
+第 65 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   assert.ok(IDBKeyRange, 'IDBKeyRange global');
 });
 // ===== 文件: tests/import-safety.test.mjs  =====
@@ -3441,9 +3453,6 @@ import { createKb, openKb } from '../src/factory.js';
 import { SQLiteBackend } from '../src/db.js';
 import { exportKB, serializeKB, deserializeKB, importKB } from '../src/bak.js';
 import { tempDbPath } from './helpers.mjs';
-第 65 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 const PW = 'import-pw';
 async function makeKb(path, wsName, docs) {
   const b = new SQLiteBackend(path);
@@ -3485,6 +3494,9 @@ test('re-importing the same backup is idempotent', async () => {
   const dstPath = tempDbPath();
   const b2 = new SQLiteBackend(dstPath);
   const parsed = deserializeKB(bytes);
+第 66 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   const first = await importKB(b2, parsed);
   assert.equal(first.imported.length, 1);
   const second = await importKB(b2, deserializeKB(bytes));
@@ -3494,9 +3506,6 @@ test('re-importing the same backup is idempotent', async () => {
 });
 test('malformed doc rows are skipped, valid rows still import', async () => {
   const b = new SQLiteBackend(':memory:');
-第 66 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const kb = {
     app: 'local-kb',
     format: 1,
@@ -3538,6 +3547,9 @@ test('old .kb backup cannot resurrect a doc deleted after the export', async () 
   const remaining = await b.listDocs();
   assert.ok(!remaining.some((r) => r.id === 'gone'), 'doc stays gone after old-backup import');
   b.close();
+第 67 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
 });
 // ===== 文件: tests/markdown.test.mjs  =====
 import { test } from 'node:test';
@@ -3547,9 +3559,6 @@ test('headings render with escaped content', () => {
   assert.equal(renderMarkdown('# Hello'), '<h1>Hello</h1>');
   assert.equal(renderMarkdown('## A & B'), '<h2>A &amp; B</h2>');
   assert.equal(renderMarkdown('###### six'), '<h6>six</h6>');
-第 67 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 });
 test('paragraphs split on blank lines', () => {
   assert.equal(renderMarkdown('one\n\ntwo'), '<p>one</p><p>two</p>');
@@ -3591,6 +3600,9 @@ test('table renders header and rows', () => {
   assert.ok(out.includes('<th>a</th>'));
   assert.ok(out.includes('<td>1</td>'));
   assert.ok(out.includes('</table>'));
+第 68 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
 });
 test('backslash-escaped pipe stays in one cell and renders literal', () => {
   const md = '| a \\| b | c |\n| --- | --- |\n| 1 | 2 |';
@@ -3600,9 +3612,6 @@ test('backslash-escaped pipe stays in one cell and renders literal', () => {
   assert.ok(out.includes('<td>1</td>') && out.includes('<td>2</td>'));
   assert.ok(!out.includes('\\'), 'no backslash survives the render');
   assert.equal((out.match(/<th>/g) || []).length, 2, 'exactly two header cells');
-第 68 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 });
 test('backslash-pair before a pipe is a separator, not an escape', () => {
   const out = renderMarkdown('| a \\\\| b |\n| --- | --- |');
@@ -3644,6 +3653,9 @@ import { SQLiteBackend } from '../src/db.js';
 import { tempDbPath, KNOWN_PLAINTEXT, KNOWN_TITLE } from './helpers.mjs';
 const PW = 'master-pw-123';
 test('no plaintext anywhere in the SQLite file', async () => {
+第 69 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   const path = tempDbPath();
   const b = new SQLiteBackend(path);
   await createKb(b, PW);
@@ -3653,9 +3665,6 @@ test('no plaintext anywhere in the SQLite file', async () => {
     { type: 'paragraph', text: KNOWN_PLAINTEXT },
     { type: 'code', text: 'var key = "shhh";' },
     { type: 'table', text: 'alpine::mount::delta' },
-第 69 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   ]);
   await r.store.edit('d1', KNOWN_TITLE + ' (updated)', [
     { type: 'paragraph', text: 'second version ' + KNOWN_PLAINTEXT },
@@ -3697,6 +3706,9 @@ test('doc title/body not discoverable from the .kb export string', async () => {
   }
   const { exportKB, serializeKB } = await import('../src/bak.js');
   const json = new TextDecoder().decode(serializeKB(exportKB(await b.getParams(), rows)));
+第 70 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   assert.equal(json.includes('Oppression Studies Manual'), false);
   assert.equal(json.includes('8-9-2'), false);
   b.close();
@@ -3706,9 +3718,6 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createKb, openKb } from '../src/factory.js';
 import { SQLiteBackend } from '../src/db.js';
-第 70 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 import { tempDbPath } from './helpers.mjs';
 const PW = 's3cret-master-password';
 test('create -> reopen -> read; edit -> reopen -> read; delete -> reopen -> gone', async () => {
@@ -3750,6 +3759,9 @@ test('create -> reopen -> read; edit -> reopen -> read; delete -> reopen -> gone
   b.close();
 });
 // ===== 文件: tests/rekey.test.mjs  =====
+第 71 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
@@ -3759,9 +3771,6 @@ import { changeMasterPassword } from '../src/rekey.js';
 import {
   tempDbPath,
   rmrf,
-第 71 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   KNOWN_PLAINTEXT,
   KNOWN_TITLE,
   WRONG_PASSWORD,
@@ -3803,6 +3812,9 @@ test('changeMasterPassword refuses a wrong current password and mutates nothing'
   const r = await openKb(b, PW);
   const list = await r.store.list();
   assert.equal(list.length, 2, 'docs still intact under the old password');
+第 72 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   assertNoPlaintextOnDisk(path);
   b.close();
   rmrf(path);
@@ -3812,9 +3824,6 @@ test('changeMasterPassword re-keys the vault: old pw denied, new pw opens docs',
   const res = await changeMasterPassword(b, PW, NEW_PW);
   assert.equal(res.ok, true);
   assert.equal(res.rewrapped, 2, 'both DEKs re-wrapped under the new workspace key');
-第 72 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const denied = await openKb(b, PW);
   assert.equal(denied.ok, false, 'old master password no longer unlocks');
   const fresh = await openKb(b, NEW_PW);
@@ -3856,6 +3865,9 @@ test('changeMasterPassword on an empty adapter is refused (no-workspace)', async
   assert.deepEqual(res, { ok: false, error: 'no-workspace' });
   b.close();
   rmrf(path);
+第 73 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
 });
 test('re-key causes every stored wrapper to differ from the old key (new DEK wrappings)', async () => {
   const { path, b } = await seededVault();
@@ -3865,9 +3877,6 @@ test('re-key causes every stored wrapper to differ from the old key (new DEK wra
   const after = (await b.getDoc('d1')).dekData;
   assert.notEqual(after, before, 'DEK re-wrapped under a different workspace key');
   const verifier = (await b.getParams()).verifier;
-第 73 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   assert.ok(verifier && verifier.iv && verifier.data, 'verifier rebuilt after re-key');
   assertNoPlaintextOnDisk(path);
   b.close();
@@ -3909,6 +3918,9 @@ test('idb adapter rebuilds FTS on unlock', async () => {
   await createKb(ad, 'pw', 'ws');
   let r = await openKb(ad, 'pw');
   await r.store.create('q1', 'Quarterly Goals', [{ type: 'paragraph', text: 'double revenue by q4' }]);
+第 74 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   const ad2 = new IndexedDBBackend(dbName);
   r = await openKb(ad2, 'pw');
   const hits = await r.store.search('revenue');
@@ -3918,9 +3930,6 @@ test('idb adapter rebuilds FTS on unlock', async () => {
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { createKb, openKb } from '../src/factory.js';
-第 74 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 import { SQLiteBackend } from '../src/db.js';
 import { tempDbPath } from './helpers.mjs';
 const PW = 'pw-for-search';
@@ -3962,6 +3971,9 @@ test('space-separated keywords AND-match (user manual 3.4 技巧)', async () => 
   assert.ok(both.some((h) => h.id === 'd-apple'), '"apples cinnamon" must AND-match d-apple');
   assert.ok(!both.some((h) => h.id === 'd-orange'), 'd-orange lacks both tokens');
   const split = await r.store.search('apple sunny');
+第 75 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   assert.equal(split.length, 0, 'cross-field tokens must not AND-match a single doc');
   b.close();
 });
@@ -3971,9 +3983,6 @@ test('search result honors edits (reindex on save)', async () => {
   await createKb(b, PW);
   const r = await openKb(b, PW);
   await r.store.create('d1', 'One Fish', [{ type: 'paragraph', text: 'underwater' }]);
-第 75 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   await r.store.edit('d1', 'Two Fish', [{ type: 'paragraph', text: 'red fish blue fish' }]);
   assert.ok((await r.store.search('blue')).some((h) => h.id === 'd1'));
   assert.equal((await r.store.search('underwater')).length, 0);
@@ -4015,6 +4024,9 @@ test('localTape carries only ciphertext (zero-knowledge), applyTape idempotent',
   const first = await applyTape(tape, s2.b);
   assert.equal(first.applied, 1, 'first apply imports the doc');
   const list = await s2.r.store.list();
+第 76 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   assert.equal(list.length, 1, 'doc present after first apply');
   const again = await applyTape(tape, s2.b);
   assert.equal(again.applied, 0, 're-applying the same tape changes nothing');
@@ -4024,9 +4036,6 @@ test('localTape carries only ciphertext (zero-knowledge), applyTape idempotent',
   s2.b.close();
 });
 test('two stores converge after exchanging tapes (with in-memory FTS rebuild)', async () => {
-第 76 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const p1 = tempDbPath();
   const p2 = tempDbPath();
   const s1 = await openSeed(p1, [['a', 'Doc A', 'alpha body']]);
@@ -4068,6 +4077,9 @@ test('LWW merge converges deterministically for concurrent writes', async () => 
 test('mergeTape ignores malformed entries', async () => {
   const good = { id: 'x', updatedAt: '2026-02-01T00:00:00.000Z', iv: 'i', data: 'd' };
   const merged = mergeTape([null, undefined, { updatedAt: '2026-02-02T00:00:00.000Z' }, good], []);
+第 77 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   assert.equal(merged.length, 1);
   assert.equal(merged[0].id, 'x');
 });
@@ -4077,9 +4089,6 @@ test('localTape drops the stale tombstone after a doc is deleted and re-created'
   await s.r.store.create('id1', 'First Life', [{ type: 'paragraph', text: 'v1' }]);
   await s.r.store.delete('id1'); 
   await s.r.store.create('id1', 'Second Life', [{ type: 'paragraph', text: 'v2' }]); 
-第 77 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const tape = await localTape(s.b);
   const id1 = tape.filter((e) => e.id === 'id1');
   assert.equal(id1.length, 1, 'exactly one entry for the re-created doc');
@@ -4121,6 +4130,9 @@ test('a tape newer than the tombstone recreates the doc (delete -> recreate)', a
   const p2 = tempDbPath();
   const s2 = await openSeed(p2, [], s1.params);
   await applyTape(await localTape(s1.b), s2.b);
+第 78 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
   await s2.r.store.delete('shared');
   assert.ok((await s2.b.listTombstones()).some((t) => t.id === 'shared'));
   const raw = await s1.b.getDoc('shared');
@@ -4130,9 +4142,6 @@ test('a tape newer than the tombstone recreates the doc (delete -> recreate)', a
       id: 'shared',
       dekIv: raw.dekIv,
       dekData: raw.dekData,
-第 78 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
       iv: raw.iv,
       data: raw.data,
       createdAt: raw.createdAt,
@@ -4174,6 +4183,9 @@ async function node(path, params, docs) {
   }
   const r = await openKb(b, PW);
   for (const [id, title, text] of docs) {
+第 79 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
     await r.store.create(id, title, [{ type: 'paragraph', text }]);
   }
   return { b, r, params: wsParams };
@@ -4183,9 +4195,6 @@ test('buildTape round-trips through serialize/parse (same identity + entries)', 
   const tape = await buildTape(s.params, s.b);
   const parsed = parseTape(serializeTape(tape));
   assert.equal(parsed.app, 'local-kb');
-第 79 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   assert.equal(parsed.type, 'sync-tape');
   assert.equal(parsed.format, 1);
   assert.deepEqual(parsed.workspace, tape.workspace, 'workspace identity preserved');
@@ -4227,6 +4236,9 @@ test('applyTapeFile carries zero plaintext and is idempotent', async () => {
   assert.equal(again.skipped, 1, 'same version detected and skipped');
   s.b.close();
   dst.b.close();
+第 80 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
 });
 test('a tape from a different workspace is refused by assertSameWorkspace / applyTapeFile', async () => {
   const s1 = await node(tempDbPath(), null, [['x', 'X', 'one']]);
@@ -4236,9 +4248,6 @@ test('a tape from a different workspace is refused by assertSameWorkspace / appl
     () => assertSameWorkspace(s1.params, tape),
     /different workspace/,
     'pure check refuses the foreign tape'
-第 80 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   );
   await assert.rejects(
     applyTapeFile(s1.b, tape),
@@ -4280,10 +4289,13 @@ test('open fails with wrong password', async () => {
   assert.equal(res.ok, false);
   backend2.close();
 });
+第 81 页 / 共 82 页
+
+零知识本地知识库软件 V1.0
 test('open fails when workspace does not exist', async () => {
   const backend = new SQLiteBackend(':memory:');
   const res = await openKb(backend, 'pw');
   assert.equal(res.ok, false);
   assert.equal(res.error, 'no-workspace');
 });
-第 81 页 / 共 81 页
+第 82 页 / 共 82 页
