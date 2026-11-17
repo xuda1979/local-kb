@@ -2223,6 +2223,48 @@ def main():
                         _bad.append(f"{_f.name}:{_i}: {_m.group(1)}")
         check(_rd, not _bad, f"non-internal imports: {_bad[:5]}")
 
+        # ---- 用户手册 2.2 / 4.3: "数据库文件按需在工作区首次创建时自动生成"
+        # + "命令行模式：数据保存在工作目录下的 SQLite 数据库文件中" — pin the
+        # CLI-mode storage contract against the repo implementation: the SQLite
+        # vault file must appear only when the workspace is first created
+        # (absent before), live under the scratch working directory, be a
+        # genuine SQLite file, and a fresh process re-unlocking that same file
+        # must still see a saved doc. Self-contained subprocess check.
+        _cli_script = r'''
+import { mkdtempSync, existsSync, readFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+const repo = "file://__ROOT__/";
+const { SQLiteBackend } = await import(repo + "src/db.js");
+const { createKb, openKb } = await import(repo + "src/factory.js");
+const dir = mkdtempSync(join(tmpdir(), "lke2e9-"));
+const dbPath = join(dir, "vault.db");
+const out = [];
+out.push("pre:" + (existsSync(dbPath) ? "present" : "absent"));
+let b = new SQLiteBackend(dbPath);
+const kb = await createKb(b, "cycle9-pw", "default");
+out.push("post:" + (existsSync(dbPath) ? "ok" : "missing"));
+out.push("loc:" + (dbPath.startsWith(dir) ? "cwd" : "other"));
+await kb.store.create("d1", "Title X", [{ type: "paragraph", text: "body y" }]);
+b.close();
+b = new SQLiteBackend(dbPath);
+const u = await openKb(b, "cycle9-pw");
+const rows = await b.listDocs();
+b.close();
+out.push("unlock:" + (u.ok ? "ok" : "fail"));
+out.push("docs:" + (rows.length === 1 ? "one" : JSON.stringify(rows)));
+const hdr = readFileSync(dbPath).subarray(0, 16).toString("latin1");
+out.push("hdr:" + (hdr === "SQLite format 3" + String.fromCharCode(0) ? "sqlite" : "other"));
+console.log(out.join(" "));
+'''.replace("__ROOT__", _root)
+        _cc = "manual 2.2/4.3: CLI mode auto-creates a working-directory SQLite file on first workspace creation; re-unlock sees saved docs"
+        _r9 = _sp.run(["node", "--input-type=module", "-e", _cli_script],
+                      capture_output=True, text=True, timeout=120)
+        _o9 = (_r9.stdout or "").strip()
+        check(_cc,
+              _r9.returncode == 0 and _o9 == "pre:absent post:ok loc:cwd unlock:ok docs:one hdr:sqlite",
+              f"rc={_r9.returncode} out={_o9!r} err={(_r9.stderr or '')[:300]!r}")
+
     finally:
         driver.quit()
 
