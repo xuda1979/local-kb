@@ -2555,6 +2555,75 @@ console.log(out.join(" "));
         finally:
             _d13.quit()
 
+        # ---- 用户手册 4.1 (line 206): "全文索引 FTS5（内存，porter 分词）"
+        # — pin the documented full-text-index parameters against the real
+        # SQLite adapter (src/db.js:61 creates an in-memory FTS5 table with
+        # tokenize='porter'). A doc whose body stores only the present-tense
+        # "connecting" must be found by the past-tense query "connected"
+        # (porter stems both to "connect"), the exact stored word must also
+        # match, a title word "Networks" must answer to "network", an
+        # unrelated term must stay silent (negative control), and the vault
+        # file on disk must hold none of the plaintext corpus words (docs are
+        # ciphertext and the index itself lives only in RAM, rebuilt from the
+        # decrypted docs on every unlock — a fresh process unlocking the same
+        # file must still answer search, proving the index is re-derived, not
+        # persisted). Self-contained subprocess check, stdlib only, mirroring
+        # the manual 2.2/4.3 CLI check above.
+        _p_script = r'''
+import { mkdtempSync, readFileSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+const repo = "file://__ROOT__/";
+const { SQLiteBackend } = await import(repo + "src/db.js");
+const { createKb, openKb } = await import(repo + "src/factory.js");
+const out = [];
+const dir = mkdtempSync(join(tmpdir(), "lke2e14-"));
+const dbPath = join(dir, "vault.db");
+try {
+  let b = new SQLiteBackend(dbPath);
+  const kb = await createKb(b, "cycle14-pw", "default");
+  await kb.store.create("d1", "Networks",
+    [{ type: "paragraph", text: "Systems are connecting across sites" }]);
+  await kb.store.create("d2", "News",
+    [{ type: "paragraph", text: "The official announcement brings randomness to planning" }]);
+  b.close();
+  const raw = readFileSync(dbPath, "latin1");
+  const onDisk = ["connecting", "Networks", "randomness"].every((w) => raw.includes(w));
+  b = new SQLiteBackend(dbPath); // fresh process: index must be rebuilt on unlock
+  const u = await openKb(b, "cycle14-pw");
+  if (!u.ok) {
+    out.push("unlock:fail");
+  } else {
+    const ids = async (q) => (await u.store.search(q)).map((h) => h.id).join(",");
+    out.push("connect:" + ((await ids("connected")) === "d1" ? "ok" : await ids("connected")));
+    out.push("reverse:" + ((await ids("connecting")) === "d1" ? "ok" : await ids("connecting")));
+    out.push("title:" + ((await ids("network")) === "d1" ? "ok" : await ids("network")));
+    out.push("neg:" + ((await ids("zzzebra")) === "" ? "ok" : await ids("zzzebra")));
+    out.push("disk:" + (onDisk ? "leaked" : "ok"));
+  }
+  b.close();
+} finally {
+  rmSync(dir, { recursive: true, force: true });
+}
+console.log(out.join(" "));
+'''.replace("__ROOT__", _root)
+        _pname = "manual 4.1: FTS5 in-memory porter index (line 206)"
+        _rp = _sp.run(["node", "--input-type=module", "-e", _p_script],
+                      capture_output=True, text=True, timeout=120)
+        _ptok = [t.split(":", 1) for t in ((_rp.stdout or "").strip().split()) if ":" in t]
+        _pom = dict(_ptok)
+        _pout = (_rp.stdout or "").strip() + "|err:" + ((_rp.stderr or "")[:200])
+        check("manual 4.1: porter stems the search query ('connected' finds the doc storing 'connecting')",
+              _rp.returncode == 0 and _pom.get("connect") == "ok", _pout)
+        check("manual 4.1: porter stems the indexed term (exact stored word 'connecting' also matches)",
+              _rp.returncode == 0 and _pom.get("reverse") == "ok", _pout)
+        check("manual 4.1: porter stems titles (title 'Networks' matched by a search for 'network')",
+              _rp.returncode == 0 and _pom.get("title") == "ok", _pout)
+        check("manual 4.1: unrelated search terms yield no hits (negative control)",
+              _rp.returncode == 0 and _pom.get("neg") == "ok", _pout)
+        check("manual 4.1: plaintext corpus never hits the on-disk vault (index is in-memory)",
+              _rp.returncode == 0 and _pom.get("disk") == "ok", _pout)
+
     finally:
         driver.quit()
 
