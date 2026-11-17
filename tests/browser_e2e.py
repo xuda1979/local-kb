@@ -2163,6 +2163,31 @@ def main():
             finally:
                 _srv2.kill()
 
+        # ---- 用户手册 2.2/Q4/Q8: "npm test 运行全部 88 项自动化测试" —
+        # pin the headless-suite contract itself: run npm test from the repo
+        # root and verify the TAP summary is exactly the number the manual
+        # quotes (88 tests, 88 passing, 0 failing, exit 0). Self-contained
+        # subprocess check, stdlib only.
+        import os as _os, re as _re, subprocess as _sp
+        _root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _nt = "manual 2.2/Q4/Q8: npm test runs exactly the 88 documented automated tests"
+        try:
+            _r = _sp.run(["npm", "test"], cwd=_root,
+                         capture_output=True, text=True, timeout=180)
+            _out = (_r.stdout or "") + "\n" + (_r.stderr or "")
+            _mt = _re.search(r"^# tests (\d+)$", _out, _re.M)
+            _mp = _re.search(r"^# pass (\d+)$", _out, _re.M)
+            _mf = _re.search(r"^# fail (\d+)$", _out, _re.M)
+            _t = int(_mt.group(1)) if _mt else -1
+            _p = int(_mp.group(1)) if _mp else -1
+            _f = int(_mf.group(1)) if _mf else -1
+            check(_nt, _r.returncode == 0 and _t == 88 and _p == 88 and _f == 0,
+                  f"rc={_r.returncode} tests={_t} pass={_p} fail={_f}")
+        except FileNotFoundError:
+            check(_nt, False, "npm executable not found")
+        except _sp.TimeoutExpired:
+            check(_nt, False, "npm test timed out")
+
     finally:
         driver.quit()
 
