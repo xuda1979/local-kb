@@ -2198,6 +2198,31 @@ def main():
         except _sp.TimeoutExpired:
             check(_nt, False, "npm test timed out")
 
+        # ---- 用户手册 1.3/2.2: "无需任何 npm 依赖" / "本软件无第三方运行时
+        # 依赖" — pin the zero-runtime-dependency contract from the repo
+        # itself: package.json must carry no runtime `dependencies` key (only
+        # the fake-indexeddb dev/test helper), and every import in
+        # src/ server/ public/ must resolve to a relative module or a
+        # `node:` builtin. Self-contained, stdlib only.
+        import json as _json, pathlib as _pl
+        _nd = "manual 1.3/2.2: no runtime third-party dependencies (no deps key, only fake-indexeddb dev dep)"
+        _rd = "manual 1.3/2.2: all imports in src/ server/ public/ are relative or node: builtins"
+        _j = _json.loads(_pl.Path(_root, "package.json").read_text(encoding="utf-8"))
+        _deps = dict(_j.get("dependencies") or {})
+        _devs = dict(_j.get("devDependencies") or {})
+        check(_nd, not _deps and sorted(_devs) == ["fake-indexeddb"],
+              f"dependencies={sorted(_deps)} devDependencies={sorted(_devs)}")
+        _bad = []
+        for _sub in ("src", "server", "public"):
+            for _f in sorted(_pl.Path(_root, _sub).rglob("*.js")) + \
+                     sorted(_pl.Path(_root, _sub).rglob("*.mjs")):
+                for _i, _ln in enumerate(_f.read_text(encoding="utf-8").splitlines(), 1):
+                    _m = _re.search(r'^\s*(?:import|export)\s+[^;\n]*?\s+from\s+["\']([^"\']+)["\']', _ln) \
+                        or _re.search(r'^\s*require\(\s*["\']([^"\']+)["\']\s*\)', _ln)
+                    if _m and not (_m.group(1).startswith(".") or _m.group(1).startswith("node:")):
+                        _bad.append(f"{_f.name}:{_i}: {_m.group(1)}")
+        check(_rd, not _bad, f"non-internal imports: {_bad[:5]}")
+
     finally:
         driver.quit()
 
