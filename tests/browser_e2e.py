@@ -628,6 +628,99 @@ def main():
         ids_json = json.dumps(sync_obj.get("peerDocs", 0))
         check("M3: sync tape carried a doc (peer lists " + ids_json + ")", sync_obj.get("peerDocs", 0) >= 1)
 
+        # ---- 用户手册 3.8 real-button sync flow: the app's Sync out button must
+        # download a timestamp-stamped .kbsync (同 .kb 的 stampedName 命名规则),
+        # the Sync in file input must apply a same-workspace tape with the app's
+        # own "N docs synced in, M skipped." receipt (LWW idempotence: this vault
+        # already holds that exact version → skipped, vault unchanged), and a
+        # foreign-workspace tape must be refused by the workspace gate in the log
+        # ("Sync refused: ... different workspace") with the vault untouched.
+        # The export block above installed the anchor click hook, so the real
+        # button click is captured into window.__captured without a disk write.
+        sync_before = datetime.now(timezone.utc).replace(microsecond=0)
+        driver.execute_script("""
+          window.__captured = null;
+          document.getElementById('btn-sync-out').click();
+          return true;
+        """)
+        sync_name = driver.execute_script("return window.__captured")
+        sync_after = datetime.now(timezone.utc).replace(microsecond=0)
+        time.sleep(0.5)
+        sync_stamp_re = r"^local-kb-sync-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.kbsync$"
+        check("sync: Sync out downloads a timestamp-stamped .kbsync name",
+              bool(re.match(sync_stamp_re, sync_name or "")), sync_name)
+        if sync_name:
+            sync_stamp = re.match(sync_stamp_re, sync_name).group(0) \
+                .replace("local-kb-sync-", "").replace(".kbsync", "")
+            sync_ts = datetime.strptime(sync_stamp, "%Y-%m-%d-%H-%M-%S").replace(tzinfo=timezone.utc)
+            check("sync: .kbsync filename timestamp is current (within the run window)",
+                  sync_before <= sync_ts <= sync_after,
+                  f"ts={sync_ts} before={sync_before} after={sync_after}")
+        log = driver.find_element(By.ID, "log").text
+        check("sync: Sync out logs the ciphertext-only tape receipt",
+              "Wrote sync tape" in log and "ciphertext only" in log, log)
+
+        # Reuse the app-level Sync in input with a tape freshly built from THIS
+        # vault: same workspace, same exact updatedAt → the LWW no-op branch
+        # (skipped) — the receipt must read "0 docs synced in, 1 skipped." and
+        # the doc list must stay at exactly one doc (the delete block depends
+        # on that count).
+        fresh_tape = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { openKb } = await import('/src/factory.js');
+            const { buildTape, serializeTape } = await import('/src/syncfile.js');
+            const db = new IndexedDBBackend();
+            const r = await openKb(db, 'correct horse battery staple');
+            if (!r.ok) return cb('{"error":"unlock"}');
+            const tape = await buildTape(r.params, db);
+            cb(new TextDecoder().decode(serializeTape(tape)));
+          })().catch((e) => cb('{"error":"' + String(e) + '"}'));
+        """)
+        fresh_bytes = fresh_tape.encode("utf-8")
+        driver.execute_script("""
+          const f = new File([new Uint8Array(arguments[0])], 'same.kbsync',
+                             { type: 'application/json' });
+          const dt = new DataTransfer();
+          dt.items.add(f);
+          const inp = document.getElementById('sync-file');
+          inp.files = dt.files;
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+        """, list(fresh_bytes))
+        time.sleep(2.0)  # apply + openKb re-derive (PBKDF2) + refreshDocList
+        log = driver.find_element(By.ID, "log").text
+        docs = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("sync: same-workspace Sync in logs the skip receipt",
+              "0 docs synced in, 1 skipped." in log, log)
+        check("sync: same-workspace Sync in left the vault at exactly one doc",
+              len(docs) == 1 and KNOWN_TITLE in (docs[0].text or ""),
+              [d.text for d in docs])
+
+        # A .kbsync from a different workspace (tampered salt → different derived
+        # workspace key) must be refused at the workspace gate without touching
+        # the vault — the "Sync refused" message is the app-level error channel.
+        foreign_tape = json.loads(fresh_tape)
+        foreign_tape["workspace"]["salt"] = "AAAAAAAAAAAAAAAAAAAAAA"
+        foreign_bytes = json.dumps(foreign_tape).encode("utf-8")
+        driver.execute_script("""
+          const f = new File([new Uint8Array(arguments[0])], 'foreign.kbsync',
+                             { type: 'application/json' });
+          const dt = new DataTransfer();
+          dt.items.add(f);
+          const inp = document.getElementById('sync-file');
+          inp.files = dt.files;
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+        """, list(foreign_bytes))
+        time.sleep(1.2)
+        log = driver.find_element(By.ID, "log").text
+        docs = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("sync: foreign-workspace tape refused by the workspace gate",
+              "Sync refused" in log and "different workspace" in log, log)
+        check("sync: refused tape left the vault untouched",
+              len(docs) == 1 and KNOWN_TITLE in (docs[0].text or ""),
+              [d.text for d in docs])
+
         # ---- lock-screen .kb restore onto a fresh machine (用户手册 3.7,
         # 登记表 功能4, SPEC AC4): a brand-new browser profile has no vault to
         # unlock and no way to reach the in-app Import .kb (view-app only), so
