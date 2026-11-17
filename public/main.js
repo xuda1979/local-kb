@@ -231,9 +231,21 @@ async function exportKBFile() {
 }
 
 async function importKBFile(file) {
-  const kb = deserializeKB(await file.arrayBuffer());
-  if (!confirm('Import ' + kb.documents.length + ' docs? Existing workspace data merges.')) return;
-  const params = await importKB(state.store.db, kb);
+  let kb;
+  try {
+    kb = deserializeKB(await file.arrayBuffer());
+  } catch (err) {
+    return log('Import refused: ' + err.message, true);
+  }
+  const count = Array.isArray(kb.documents) ? kb.documents.length : 0;
+  if (!confirm('Import ' + count + ' docs? Existing workspace data merges.')) return;
+  try {
+    await importKB(state.store.db, kb);
+  } catch (err) {
+    // covers broken files and cross-workspace backups; importKB throws before
+    // any write for a foreign workspace, so this vault is left untouched
+    return log('Import refused: ' + err.message, true);
+  }
   // re-open with current password to rebuild store handles
   const pw = sessionStorage.getItem('local-kb-pw');
   const res = await openKb(state.store.db, pw);

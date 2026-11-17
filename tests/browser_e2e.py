@@ -428,6 +428,52 @@ def main():
               all(needle not in export_json for needle in
                   [KNOWN_TITLE, "oscar-7", "48.8584N", "Project Snowstorm"]))
 
+        # ---- unlocked-state .kb import refusal (用户手册 3.7 场景二 / 5.1
+        # 故障 3): importing a foreign-workspace or malformed backup while in
+        # the app must refuse loudly in the log instead of surfacing as an
+        # unhandled rejection with no message — and must leave the vault intact.
+        foreign = json.loads(export_json)
+        # A different workspace salt → different derived workspace key.
+        foreign["workspace"]["salt"] = "AAAAAAAAAAAAAAAAAAAAAA"
+        foreign_bytes = json.dumps(foreign).encode("utf-8")
+        driver.execute_script("""
+          const f = new File([new Uint8Array(arguments[0])], 'foreign.kb',
+                             { type: 'application/json' });
+          const dt = new DataTransfer();
+          dt.items.add(f);
+          const inp = document.getElementById('import-file');
+          inp.files = dt.files;
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+        """, list(foreign_bytes))
+        wait_for(driver, EC.alert_is_present(), 6)
+        driver.switch_to.alert.accept()  # confirm; the salt gate then refuses
+        time.sleep(1.2)
+        log = driver.find_element(By.ID, "log").text
+        check("import: foreign-workspace .kb refused with a message",
+              "Import refused" in log and "different workspace" in log, log)
+        docs = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("import: refused .kb left the vault untouched",
+              any(KNOWN_TITLE in (d.text or "") for d in docs),
+              [d.text for d in docs])
+        # malformed .kb (valid local-kb envelope, missing workspace) must be
+        # refused at importKB, before any write, with a surfaced message
+        broken_bytes = json.dumps({"app": "local-kb", "format": 1}).encode("utf-8")
+        driver.execute_script("""
+          const f = new File([new Uint8Array(arguments[0])], 'broken.kb',
+                             { type: 'application/json' });
+          const dt = new DataTransfer();
+          dt.items.add(f);
+          const inp = document.getElementById('import-file');
+          inp.files = dt.files;
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+        """, list(broken_bytes))
+        wait_for(driver, EC.alert_is_present(), 6)
+        driver.switch_to.alert.accept()  # confirm; the shape check then refuses
+        time.sleep(1.2)
+        log = driver.find_element(By.ID, "log").text
+        check("import: malformed .kb refused with a message",
+              "Import refused" in log and "broken" in log, log)
+
         # ---- M3 sync: build a .kbsync tape, apply it to a fresh peer, verify
         # the peer converges and the carried tape is ciphertext-only.
         sync_res = driver.execute_async_script("""
