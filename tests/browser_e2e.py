@@ -634,6 +634,15 @@ def main():
         rows = search_hits("nested")
         check("AC5: search matches quote bodies",
               any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        # 用户手册 3.4: "系统对标题、正文、代码、引用与表格单元格进行全文匹配"
+        # — the index must cover the *title* as well as every block type. The
+        # body above holds code/quote/table tokens; this pins the remaining
+        # field with a token that exists ONLY in the title
+        # ("Project Snowstorm Operations" — "snowstorm" never appears in the
+        # body, so a hit proves the title is what matched, not a body word).
+        rows = search_hits("snowstorm")
+        check("AC5: search matches the doc by its title word (manual 3.4)",
+              any(KNOWN_TITLE in (t or "") for t in rows), rows)
         rows = search_hits("Kyoto")
         check("AC5: search matches table cells",
               any(KNOWN_TITLE in (t or "") for t in rows), rows)
