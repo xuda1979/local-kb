@@ -981,6 +981,75 @@ def main():
             log2 = driver2.find_element(By.ID, "log").text
             check("restore: merged log confirms the restore by document count",
                   "Restored .kb backup" in log2, log2)
+
+            # ---- a deleted doc cannot be resurrected by an OLD backup or tape
+            # (用户手册 3.3: "删除会记录同步墓碑，之后即使从旧备份/旧同步磁带也
+            # 无法 复活 该文档"). driver2's vault holds this exact workspace, so
+            # the export_json bytes captured earlier ARE the pre-delete .kb of
+            # the same doc (same salt, same id), and the tape captured below is
+            # the pre-delete .kbsync. Delete the doc, then feed both back — the
+            # tombstone must dominate (importKB skips tombstoned ids; applyTape
+            # skips live entries dominated by a local tombstone).
+            # capture the pre-delete tape first, while the doc is still live
+            prekill_tape = driver2.execute_async_script("""
+              const cb = arguments[arguments.length - 1];
+              (async () => {
+                const { IndexedDBBackend } = await import('/idb.js');
+                const { openKb } = await import('/src/factory.js');
+                const { buildTape, serializeTape } = await import('/src/syncfile.js');
+                const db = new IndexedDBBackend();
+                const r = await openKb(db, 'correct horse battery staple');
+                if (!r.ok) return cb('{"error":"unlock"}');
+                const tape = await buildTape(r.params, db);
+                cb(new TextDecoder().decode(serializeTape(tape)));
+              })().catch((e) => cb('{"error":"' + String(e) + '"}'));
+            """)
+            driver2.find_element(By.CSS_SELECTOR, "#doc-list .doc-row").click()
+            time.sleep(0.8)
+            driver2.find_element(By.ID, "btn-delete").click()
+            time.sleep(0.6)
+            driver2.switch_to.alert.accept()  # confirm the deletion
+            time.sleep(1.0)
+            rows2 = driver2.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            check("resurrect: delete confirmed on the restore profile",
+                  len(rows2) == 0, [r.text for r in rows2])
+            # in-app Import (场景二) of the OLD backup must respect the tombstone
+            # that now lives in this vault: the doc's id is skipped on import,
+            # so the list stays empty instead of the doc reappearing.
+            driver2.execute_script("""
+              const f = new File([new Uint8Array(arguments[0])], 'old.kb',
+                                 { type: 'application/json' });
+              const dt = new DataTransfer();
+              dt.items.add(f);
+              const inp = document.getElementById('import-file');
+              inp.files = dt.files;
+              inp.dispatchEvent(new Event('change', { bubbles: true }));
+            """, list(kb_bytes))
+            wait_for(driver2, EC.alert_is_present(), 8)
+            driver2.switch_to.alert.accept()  # confirm: "Import 1 docs?..."
+            time.sleep(2.0)
+            log2 = driver2.find_element(By.ID, "log").text
+            rows2 = driver2.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            check("resurrect: old .kb import cannot revive the deleted doc (manual 3.3)",
+                  len(rows2) == 0, (log2, [r.text for r in rows2]))
+            # the old .kbsync tape (same workspace gate) must no-op against the
+            # tombstone — a live entry at the deleted doc's timestamp is
+            # dominated locally, so the doc stays gone
+            driver2.execute_script("""
+              const f = new File([new Uint8Array(arguments[0])], 'old.kbsync',
+                                 { type: 'application/json' });
+              const dt = new DataTransfer();
+              dt.items.add(f);
+              const inp = document.getElementById('sync-file');
+              inp.files = dt.files;
+              inp.dispatchEvent(new Event('change', { bubbles: true }));
+            """, list(prekill_tape.encode("utf-8")))
+            time.sleep(2.0)  # apply + openKb re-derive (PBKDF2) + refreshDocList
+            log2 = driver2.find_element(By.ID, "log").text
+            rows2 = driver2.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            check("resurrect: old .kbsync tape cannot revive the deleted doc (manual 3.3)",
+                  len(rows2) == 0 and "skipped" in log2,
+                  (log2, [r.text for r in rows2]))
         finally:
             driver2.quit()
 
