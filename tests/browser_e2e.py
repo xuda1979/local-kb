@@ -908,6 +908,47 @@ def main():
             log2 = driver2.find_element(By.ID, "log").text
             check("restore: log confirms the restore by document count",
                   "Restored .kb backup" in log2, log2)
+
+            # ---- lock-screen restore refusal for a *different* workspace
+            # (用户手册 3.7 场景一: "若当前浏览器已存在同一工作区（盐值相同）则会先
+            # 确认再合并导入；若已存在其他工作区（盐值不同）则恢复会被拒绝" and
+            # 5.1 故障 3). driver2 now holds the restored (same-salt) vault;
+            # refresh it back to the lock screen, hand it a foreign-salt .kb,
+            # and the lock-screen precheck (main.js restoreKBFile) must refuse
+            # BEFORE any confirm()/unlock — the existing vault stays restorable.
+            driver2.refresh()
+            wait_for(driver2, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            foreign2 = json.loads(export_json)
+            # a different workspace salt → different derived workspace key
+            foreign2["workspace"]["salt"] = "AAAAAAAAAAAAAAAAAAAAAA"
+            foreign2_bytes = json.dumps(foreign2).encode("utf-8")
+            driver2.execute_script("""
+              const f = new File([new Uint8Array(arguments[0])], 'foreign-restore.kb',
+                                 { type: 'application/json' });
+              const dt = new DataTransfer();
+              dt.items.add(f);
+              const inp = document.getElementById('restore-file');
+              inp.files = dt.files;
+              inp.dispatchEvent(new Event('change', { bubbles: true }));
+            """, list(foreign2_bytes))
+            driver2.find_element(By.ID, "restore-pw").send_keys("correct horse battery staple")
+            driver2.find_element(By.ID, "btn-restore").click()
+            # no confirm() is offered for a foreign salt — the precheck returns
+            # before the merge/create-vault paths can arm one
+            time.sleep(1.2)
+            log2 = driver2.find_element(By.ID, "log").text
+            check("restore: foreign-workspace .kb refused on the lock screen (manual 3.7/故障 3)",
+                  "Restore refused" in log2 and "different workspace" in log2, log2)
+            check("restore: refused restore left the profile on the lock screen",
+                  driver2.find_element(By.ID, "view-unlock").is_displayed())
+            # the existing same-salt vault is untouched: unlock and the doc returns
+            driver2.find_element(By.ID, "pw").send_keys("correct horse battery staple")
+            driver2.find_element(By.ID, "btn-unlock").click()
+            wait_for(driver2, EC.visibility_of_element_located((By.ID, "view-app")), 15)
+            wait_for(driver2, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+            rows2 = driver2.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            check("restore: refused restore left the existing vault intact",
+                  any(KNOWN_TITLE in (r.text or "") for r in rows2), [r.text for r in rows2])
         finally:
             driver2.quit()
 
