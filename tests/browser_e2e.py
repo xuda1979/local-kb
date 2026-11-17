@@ -471,6 +471,50 @@ def main():
         check("AC5: search hits the doc by keyword",
               any(KNOWN_TITLE in (r.text or "") for r in rows), [r.text for r in rows])
 
+        # ---- AC5: 用户手册 3.4 "系统对标题、正文、代码、引用与表格单元格进行
+        # 全文匹配" — the FTS index covers every block type (built from the
+        # store's plaintextForIndex: title + each block's text). Each query is
+        # issued against #search-term directly (250ms debounce + Go click),
+        # with a clear between queries so hits belong to the current term.
+        def search_hits(term):
+            search.clear()
+            search.send_keys(term)
+            driver.find_element(By.ID, "btn-search").click()
+            time.sleep(1.2)
+            return [r.text or "" for r in
+                    driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")]
+
+        rows = search_hits("const")
+        check("AC5: search matches fenced code bodies",
+              any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        rows = search_hits("nested")
+        check("AC5: search matches quote bodies",
+              any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        rows = search_hits("Kyoto")
+        check("AC5: search matches table cells",
+              any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        # 用户手册 3.4 技巧: "关键词可连续用空格分隔" — FTS5 treats the two
+        # terms as an implicit AND, so only a doc holding both matches.
+        rows = search_hits("Kyoto Japan")
+        check("AC5: space-separated keywords AND-match (table cells)",
+              any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        rows = search_hits("const oscar")
+        check("AC5: space-separated keywords AND-match (code + body)",
+              any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        rows = search_hits("zanzibarbazooka")
+        check("AC5: search returns nothing for an absent token",
+              not any(KNOWN_TITLE in (t or "") for t in rows), rows)
+        # Restore the full list deterministically: an empty-query Go click runs
+        # doSearch -> refreshDocList (the debounced input handler alone leaves
+        # the previous "No matches." list in place until it fires). The import
+        # refusal checks below depend on the doc being visible in #doc-list.
+        search.clear()
+        driver.find_element(By.ID, "btn-search").click()
+        time.sleep(1.0)
+        rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("AC5: clearing the box after a no-match restores the doc list",
+              any(KNOWN_TITLE in (t.text or "") for t in rows), rows)
+
         # ---- AC4: .kb export - download and inspect (ciphertext only)
         # Read the export payload straight from page JS (same serialization as
         # the browser download; avoids post-launch download-dir configuration).
