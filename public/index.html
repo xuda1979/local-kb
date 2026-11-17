@@ -37,7 +37,8 @@
     #log { min-height: 1.4em; font-size: 13px; color: #8cc78a; margin-top: 12px; }
     #log.error { color: #c78a8a; }
     .row { display: flex; gap: 8px; align-items: center; }
-    #pw, #pw2, #pw2b { max-width: 320px; }
+    #pw, #pw2, #pw2b, #restore-pw { max-width: 320px; }
+    .file-pick { cursor: pointer; }
     #preview { background: #12161d; border: 1px solid #2a303a; border-radius: 8px; padding: 12px 16px; min-height: 300px; overflow-wrap: break-word; }
     #preview h1, #preview h2, #preview h3 { margin: 0.5em 0 0.25em; }
     #preview pre { background: #0c0f14; border: 1px solid #2a303a; border-radius: 6px; padding: 10px 12px; overflow-x: auto; }
@@ -69,6 +70,19 @@
       <input type="password" id="pw2b" placeholder="Repeat master password" autocomplete="new-password" />
       <button id="btn-create">Create vault</button>
       <p class="muted">Losing the master password means losing your data — it is never stored.</p>
+    </div>
+
+    <div class="card">
+      <h2>Restore from .kb backup</h2>
+      <input type="password" id="restore-pw" placeholder="Master password of the backup" autocomplete="current-password" />
+      <label class="file-pick secondary" style="display:inline-block;
+        background:#2a303a; border-radius:8px; padding:9px 16px;">Choose .kb file
+        <input type="file" id="restore-file" accept=".kb,application/json" style="display:none;" />
+      </label>
+      <button id="btn-restore">Restore</button>
+      <p class="muted">Restores a backup on a fresh machine (or into a matching empty vault). The
+        backup's workspace becomes the current one — enter the master password that made it. This
+        refuses to overwrite a different existing workspace.</p>
     </div>
   </div>
 

@@ -460,6 +460,52 @@ def main():
         ids_json = json.dumps(sync_obj.get("peerDocs", 0))
         check("M3: sync tape carried a doc (peer lists " + ids_json + ")", sync_obj.get("peerDocs", 0) >= 1)
 
+        # ---- lock-screen .kb restore onto a fresh machine (用户手册 3.7,
+        # 登记表 功能4, SPEC AC4): a brand-new browser profile has no vault to
+        # unlock and no way to reach the in-app Import .kb (view-app only), so
+        # the lock screen must accept the exported backup directly, create the
+        # vault from the backup's params and unlock with the backup password.
+        # A second headless profile acts as the fresh machine; the first
+        # driver's IndexedDB must stay untouched.
+        kb_bytes = export_json.encode("utf-8")
+        # A second geckodriver session gets its own isolated temp profile
+        # (same launch pattern as the main driver), so this browser has no
+        # vault at all — the fresh-machine premise of the restore path.
+        opts2 = Options()
+        opts2.headless = True
+        opts2.binary_location = fb
+        opts2.set_preference("dom.indexedDB.enabled", True)
+        driver2 = webdriver.Firefox(options=opts2)
+        try:
+            driver2.get(BASE + "/")
+            wait_for(driver2, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            check("restore: fresh profile shows the lock screen", True)
+            # hand the .kb backup to the hidden file input the same way a real
+            # <input type=file> change event does
+            driver2.execute_script("""
+              const f = new File([new Uint8Array(arguments[0])], 'backup.kb',
+                                 { type: 'application/json' });
+              const dt = new DataTransfer();
+              dt.items.add(f);
+              const inp = document.getElementById('restore-file');
+              inp.files = dt.files;
+              inp.dispatchEvent(new Event('change', { bubbles: true }));
+            """, list(kb_bytes))
+            driver2.find_element(By.ID, "restore-pw").send_keys("correct horse battery staple")
+            driver2.find_element(By.ID, "btn-restore").click()
+            wait_for(driver2, EC.alert_is_present(), 6)
+            driver2.switch_to.alert.accept()  # confirm: create the vault from the backup
+            wait_for(driver2, EC.visibility_of_element_located((By.ID, "view-app")), 15)
+            wait_for(driver2, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+            rows = driver2.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            check("restore: backup doc appears in the fresh vault",
+                  any(KNOWN_TITLE in (r.text or "") for r in rows), [r.text for r in rows])
+            log2 = driver2.find_element(By.ID, "log").text
+            check("restore: log confirms the restore by document count",
+                  "Restored .kb backup" in log2, log2)
+        finally:
+            driver2.quit()
+
         # ---- re-key: change master password without losing the vault
         # Save the dirty preview edits first so no unsaved-changes guard fires.
         driver.find_element(By.ID, "btn-save").click()

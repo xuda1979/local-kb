@@ -149,7 +149,7 @@ server/：
   h) 改密：解锁成功后，遍历每个文档用旧工作区密钥解封 DEK → 用新工作区
      密钥重新封装 → 最后重建校验器并保存参数（原子收尾，旧密码即失效）。
 
-  工程源程序总行数（去除注释与空行）：2973 行（含注释与空行约 3825 行）。
+  工程源程序总行数（去除注释与空行）：3007 行（含注释与空行约 3868 行）。
 
 2.5  模块划分与接口关系
 
@@ -293,7 +293,10 @@ server/：
     （store.create/edit/delete/get/list/search）；导出/导入 .kb、同步
     引出/引入 .kbsync、修改主密码等交互由 main.js 直接装配 bak.js /
     syncfile.js / rekey.js 并作用于存储适配器接口（经 state.store.db 的
-    listDocs/getDoc/putDoc/deleteDoc/listTombstones 等），全程密文流
+    listDocs/getDoc/putDoc/deleteDoc/listTombstones 等），全程密文流；
+    锁定页“从 .kb 备份恢复”卡直接装配 bak.js 的 deserializeKB/importKB
+    与 factory.js 的 openKb：无既有工作区时以备份参数建立知识库（全量
+    恢复），盐值相同则确认后合并，盐值不同则拒绝（拒绝逻辑同 3.5）
 
 3.10 可靠性、安全与容错设计
 

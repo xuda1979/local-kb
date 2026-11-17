@@ -439,9 +439,52 @@ async function createVault() {
   await enterApp(store, params);
 }
 
+// 用户手册 3.7: on a fresh machine (or an empty vault) there is no store to unlock,
+// so the .kb restore must be reachable from the lock screen. importKB's salt gate
+// (bak.js) is the whole safety contract here:
+//   - no vault yet       -> backup params become the vault (full restore);
+//   - same-salt vault    -> merge into it, then unlock with the backup password;
+//   - different-salt     -> refused by importKB; we pre-check to give a clear message.
+async function restoreKBFile() {
+  const file = $('#restore-file').files && $('#restore-file').files[0];
+  if (!file) return log('Choose a .kb backup file first.', true);
+  const pw = $('#restore-pw').value;
+  if (!pw) return log('Enter the master password of the backup.', true);
+
+  let kb;
+  try {
+    kb = deserializeKB(await file.arrayBuffer());
+  } catch (err) {
+    return log('Restore refused: ' + err.message, true);
+  }
+  const db = new IndexedDBBackend();
+  const existing = await db.getParams();
+  if (existing && existing.salt !== kb.workspace.salt) {
+    return log('Restore refused: a different workspace already exists here. Export a fresh .kb ' +
+      'from that workspace to move it instead.', true);
+  }
+  if (existing && existing.salt === kb.workspace.salt && !confirm('This browser already has this workspace. Merge the backup into it?')) return;
+  if (!existing && !confirm('This will create a new vault from the backup (' + kb.documents.length +
+      ' docs). Only the master password you type is used — the backup workspace becomes this vault.')) return;
+
+  try {
+    await importKB(db, kb);
+  } catch (err) {
+    return log('Restore refused: ' + err.message, true);
+  }
+  const res = await openKb(db, pw);
+  if (!res.ok) {
+    return log('Restored the backup, but its master password was not accepted.', true);
+  }
+  sessionStorage.setItem('local-kb-pw', pw);
+  await enterApp(res.store, res.params);
+  log('Restored .kb backup: ' + kb.documents.length + ' docs.');
+}
+
 function bind() {
   $('#btn-unlock').addEventListener('click', unlock);
   $('#btn-create').addEventListener('click', createVault);
+  $('#btn-restore').addEventListener('click', restoreKBFile);
   $('#btn-save').addEventListener('click', saveDoc);
   $('#btn-new').addEventListener('click', newDoc);
   $('#btn-lock').addEventListener('click', lock);
