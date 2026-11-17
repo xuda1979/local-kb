@@ -1084,6 +1084,72 @@ def main():
         check("AC6: page references no external network",
               all(x not in html for x in ["https://", "//cdn", "http://"]))
 
+        # ---- 用户手册 4.1 (服务端口 4242，可用环境变量 PORT 覆盖), 5.1 故障 6
+        # 处理 ("设置环境变量 PORT=其他端口后重启") and Q2 ("演示服务器仅提供
+        # 静态文件传输服务"): pin the demo server's port + offline contract on
+        # the wire — the /api/health offline marker, the default port serving
+        # index.html, and a second instance started with PORT=<alt> answering on
+        # that port. Stdlib http.client/subprocess only, no new dependencies.
+        import http.client as _hc, socket as _sk, subprocess as _sp
+        _host = BASE.split("://", 1)[1].rsplit(":", 1)[0]
+        _port = int(BASE.split("://", 1)[1].rsplit(":", 1)[1])
+
+        conn = _hc.HTTPConnection(_host, _port, timeout=5)
+        conn.request("GET", "/api/health")
+        hr = conn.getresponse()
+        hbody = json.loads(hr.read().decode("utf-8"))
+        conn.close()
+        check("server: /api/health reports the offline static server (manual Q2)",
+              hr.status == 200 and hbody.get("ok") is True
+              and hbody.get("offline") is True and hbody.get("app") == "local-kb",
+              f"status={hr.status} {hbody}")
+
+        conn = _hc.HTTPConnection(_host, _port, timeout=5)
+        conn.request("GET", "/")
+        pr = conn.getresponse()
+        pbody = pr.read().decode("utf-8", "replace")
+        conn.close()
+        check("server: default port serves the app's index.html (manual 2.1/4.1)",
+              pr.status == 200 and "view-unlock" in pbody and "Local KB" in pbody,
+              f"status={pr.status} bytes={len(pbody)}")
+
+        # PORT override — a second demo instance bound to an ephemeral port must
+        # answer on it (manual 4.1 "可用环境变量 PORT 覆盖" / 5.1 故障 6)
+        _probe = _sk.socket()
+        _probe.bind(("127.0.0.1", 0))
+        _alt = _probe.getsockname()[1]
+        _probe.close()
+        _env = dict(os.environ)
+        _env["PORT"] = str(_alt)
+        _srv = _sp.Popen(
+            ["node", "--enable-source-maps", "server/demo.mjs"],
+            cwd=os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL, env=_env,
+        )
+        try:
+            _deadline = time.time() + 10
+            _ok = False
+            while time.time() < _deadline:
+                try:
+                    c2 = _hc.HTTPConnection("127.0.0.1", _alt, timeout=2)
+                    c2.request("GET", "/api/health")
+                    r2 = c2.getresponse()
+                    h2 = json.loads(r2.read().decode("utf-8"))
+                    c2.close()
+                    if r2.status == 200 and h2.get("ok") is True:
+                        _ok = True
+                        break
+                except Exception:
+                    time.sleep(0.15)
+            check("server: PORT env override rebinds the port (manual 4.1/故障 6)",
+                  _ok, f"alt port {_alt}")
+        finally:
+            _srv.terminate()
+            try:
+                _srv.wait(timeout=5)
+            finally:
+                _srv.kill()
+
     finally:
         driver.quit()
 
