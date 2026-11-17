@@ -611,10 +611,18 @@ def main():
 
         # ---- idle auto-lock (manual 3.2: re-lock after a default idle period)
         # Shrink the idle window to real seconds via the documented page-global
-        # override, then wait for the timer to fire on its own. Dispatching a
-        # real mousemove re-arms the timer so the override takes effect; after
-        # that, no page interaction (no keydown/mousemove) may happen before the
-        # lock fires, or the test would just postpone it.
+        # override, then wait for the timer to fire on its own. Manual 3.2 also
+        # promises "自动锁定前会自动保存未保存的编辑，不会丢失内容" — a dirty
+        # editor edit must be auto-saved before the key is dropped, so open the
+        # doc and type an UNSAVED edit first. The mousemove at the end re-arms
+        # the timer after the last keydown; after that, no page interaction may
+        # happen before the lock fires, or the test would just postpone it.
+        driver.find_element(By.CSS_SELECTOR, "#doc-list .doc-row").click()
+        time.sleep(1.0)
+        area = driver.find_element(By.ID, "editor-area")
+        marker = "\nIDLE-AUTOSAVE-PROOF"
+        area.send_keys(marker)
+        time.sleep(0.3)  # let the last input event mark the editor dirty
         driver.execute_script("""
           window.LOCAL_KB_IDLE_MS = 3000;
           document.dispatchEvent(new MouseEvent('mousemove'));
@@ -628,6 +636,20 @@ def main():
         log = driver.find_element(By.ID, "log").text
         check("idle auto-lock: log reports the inactivity lock",
               "auto-locked" in log.lower(), log)
+
+        # re-unlock: the edit was never saved manually, so its survival proves
+        # idleLock's auto-save ran before the session password was dropped
+        pw = driver.find_element(By.ID, "pw")
+        pw.clear()
+        pw.send_keys(NEW_PW)
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+        driver.find_element(By.CSS_SELECTOR, "#doc-list .doc-row").click()
+        time.sleep(1.0)
+        area_val = driver.find_element(By.ID, "editor-area").get_attribute("value")
+        check("idle auto-lock: unsaved edit auto-saved before the lock (manual 3.2)",
+              "IDLE-AUTOSAVE-PROOF" in area_val, area_val[-120:])
 
         # IndexedDB must hold ciphertext only, with no new-password plaintext
         dump = flatten_dump(get_db_dump(driver))
