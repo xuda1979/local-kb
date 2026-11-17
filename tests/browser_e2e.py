@@ -1526,6 +1526,39 @@ def main():
         check("delete: doc list is empty after the only doc was deleted",
               len(rows) == 0, [r.text for r in rows])
 
+        # ---- 用户手册 3.2: "解锁成功后自动重建全文索引" — the FTS index is
+        # in-memory only and re-derived from the decrypted store on every
+        # unlock, so it can never outlive the ciphertext it derives from. The
+        # positive half (a fresh unlock makes current content searchable) is
+        # pinned by every AC5 search above, each run on a just-unlocked
+        # session. This block pins the discriminating *negative*: the doc
+        # deleted above was searchable ("oscar" is one of its body plaintext
+        # markers) in the previous session; after this reload + unlock the
+        # search for that token must find nothing — a stale or persisted index
+        # would still match it. A browser-level rebuild proof, not just a
+        # unit-level one.
+        search = driver.find_element(By.ID, "search-term")
+        search.send_keys("oscar")
+        driver.find_element(By.ID, "btn-search").click()
+        time.sleep(1.2)
+        rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("manual 3.2: rebuilt FTS index has no stale hit for a deleted doc",
+              len(rows) == 0, [r.text for r in rows])
+        list_body = driver.find_element(By.ID, "doc-list").text
+        check("manual 3.2: empty search result rendered as no-match, not a stale list",
+              "No matches." in list_body, list_body)
+        # An empty-query Go restores the full list (refreshDocList), which now
+        # renders the store's genuine empty state — proving the search plumbing
+        # survived the probe and the negative above is data-true, not a broken
+        # search silently returning nothing.
+        search.clear()
+        driver.find_element(By.ID, "btn-search").click()
+        time.sleep(1.2)
+        list_body = driver.find_element(By.ID, "doc-list").text
+        rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("manual 3.2: search plumbing intact after the rebuild probe",
+              "No documents yet" in list_body and len(rows) == 0, list_body)
+
         # ---- AC6: offline — assert page JS/import loads (no network fallback)
         # The page itself is a static module graph served from /public; language
         # server already covered by reloads above. Also verify demo serves offline
