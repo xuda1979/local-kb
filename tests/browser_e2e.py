@@ -2624,6 +2624,85 @@ console.log(out.join(" "));
         check("manual 4.1: plaintext corpus never hits the on-disk vault (index is in-memory)",
               _rp.returncode == 0 and _pom.get("disk") == "ok", _pout)
 
+        # ---- 用户手册 2.3 (line 71) + 故障 6 (line 252): "浏览器：支持 WebCrypto
+        # 的现代浏览器" / "确认浏览器支持 WebCrypto" — pin the browser runtime
+        # requirement against the served page itself on a fresh headless profile:
+        # the origin must expose WebCrypto (crypto.subtle), and the shipped
+        # module graph (src/crypto.js, imported by public/main.js) must drive
+        # genuine AES-256-GCM rounds through it — a non-extractable secret key
+        # with the documented usages, a byte-exact encrypt(decrypt()) round-trip,
+        # and a fresh 12-byte IV per message. An in-process negative control then
+        # strips globalThis.crypto and shows the same module refuses to derive
+        # (TypeError reading 'subtle'): no degraded fallback, which is exactly
+        # what 故障 6 tells the user to confirm.
+        _opts15 = Options()
+        _opts15.headless = True
+        _opts15.binary_location = fb
+        _opts15.set_preference("dom.indexedDB.enabled", True)
+        _d15 = webdriver.Firefox(options=_opts15)
+        try:
+            _d15.get(BASE + "/")
+            wait_for(_d15, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _w15 = _d15.execute_async_script("""
+              const cb = arguments[arguments.length - 1];
+              (async () => {
+                const r = { subtle: !!globalThis.crypto && !!globalThis.crypto.subtle };
+                try {
+                  const { deriveKeyBytes, deriveWorkspaceKey, importAesGcm,
+                          encrypt, decrypt, utf8e, utf8d } = await import('/src/crypto.js');
+                  const raw = new Uint8Array(await deriveKeyBytes("pin-pw",
+                      "c2FsdHNhbHRzYWx0c2FsdA", 3100));
+                  const ws = new Uint8Array(await deriveWorkspaceKey(raw, "ws15"));
+                  const key = await importAesGcm(ws);
+                  r.keyType = key.type;
+                  r.keyAlg = ((key.algorithm || {}).name || "") + "/" +
+                             ((key.algorithm || {}).length || 0);
+                  r.extractable = key.extractable;
+                  r.usages = key.usages.join(",");
+                  const msg = utf8e.encode("Local KB WebCrypto round-trip");
+                  const first = await encrypt(key, msg);
+                  const second = await encrypt(key, msg);
+                  const back = new Uint8Array(await decrypt(key, first.iv, first.data));
+                  r.ok = utf8d.decode(back) === "Local KB WebCrypto round-trip";
+                  r.ivBytes = Math.floor(first.iv.length * 3 / 4);
+                  r.freshIv = first.iv !== second.iv;
+                } catch (e) {
+                  r.error = e.name + ": " + String(e.message).slice(0, 120);
+                }
+                cb(r);
+              })().catch((e) => cb({ error: String(e) }));
+            """)
+            check("manual 2.3/故障 6: served origin exposes WebCrypto (crypto.subtle present)",
+                  bool(_w15.get("subtle")), _w15)
+            check("manual 2.3: shipped crypto drives a genuine AES-256-GCM key (secret, non-extractable)",
+                  _w15.get("keyType") == "secret" and "AES-GCM" in _w15.get("keyAlg", "")
+                  and _w15.get("extractable") is False, _w15)
+            check("manual 2.3: derived key is good for encrypt/decrypt/wrapKey/unwrapKey",
+                  _w15.get("usages") == "encrypt,decrypt,wrapKey,unwrapKey", _w15.get("usages"))
+            check("manual 2.3: AES-GCM round-trip through the served module is byte-exact",
+                  _w15.get("ok") is True, _w15)
+            check("manual 2.3: each encrypt() issues a fresh 12-byte IV (AES-GCM)",
+                  _w15.get("ivBytes") == 12 and _w15.get("freshIv") is True, _w15)
+        finally:
+            _d15.quit()
+
+        # Negative control without WebCrypto (Node): strip globalThis.crypto from
+        # the same module graph — no crutch polyfill must keep it alive.
+        _w_script = r'''
+        const { deriveUnlockKey } = await import("file://__ROOT__/src/crypto.js");
+        Object.defineProperty(globalThis, "crypto",
+          { value: undefined, configurable: true, writable: true });
+        let threw = "";
+        try { await deriveUnlockKey("pw", "c2FsdHNhbHRzYWx0c2FsdA"); }
+        catch (e) { threw = e.name + ":" + String(e.message).slice(0, 120); }
+        console.log("refuse:" + (/subtle/.test(threw) ? "ok" : threw));
+        '''.replace("__ROOT__", _root)
+        _wr = _sp.run(["node", "--input-type=module", "-e", _w_script],
+                      capture_output=True, text=True, timeout=60)
+        _wout = (_wr.stdout or "").strip() + "|err:" + ((_wr.stderr or "")[:160])
+        check("manual 2.3/故障 6: without WebCrypto the app crypto refuses (no fallback)",
+              _wr.returncode == 0 and "refuse:ok" in _wout, _wout)
+
     finally:
         driver.quit()
 
