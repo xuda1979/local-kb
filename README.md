@@ -17,6 +17,11 @@ touches disk, so neither the backing store nor any server can read your notes.
   blocks through the editor and the encrypted store.
 - **Change master password**: re-key the entire vault (every DEK re-wrapped)
   without losing data; the old password stops working atomically at the end.
+- **Auto-lock**: after 5 minutes without activity (mouse, keys, scroll) the
+  vault locks itself and drops the master password from the session; any
+  unsaved edits are persisted first, so nothing in the editor is lost to the
+  key drop. The idle window can be overridden for testing
+  (`window.LOCAL_KB_IDLE_MS`).
 
 ---
 
