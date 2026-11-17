@@ -552,6 +552,50 @@ def main():
         check("import: malformed .kb refused with a message",
               "Import refused" in log and "broken" in log, log)
 
+        # ---- unlocked-state .kb import merge (用户手册 3.7 场景二): re-importing
+        # a same-workspace backup in the app must merge idempotently — confirm
+        # asked, log count matches the payload, existing ids skipped (幂等导入),
+        # no duplicate rows. This is the positive branch of the two refusal
+        # tests above, driven through the same real #import-file path.
+        same_kb_bytes = export_json.encode("utf-8")
+        driver.execute_script("""
+          const f = new File([new Uint8Array(arguments[0])], 'same.kb',
+                             { type: 'application/json' });
+          const dt = new DataTransfer();
+          dt.items.add(f);
+          const inp = document.getElementById('import-file');
+          inp.files = dt.files;
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+        """, list(same_kb_bytes))
+        wait_for(driver, EC.alert_is_present(), 6)
+        driver.switch_to.alert.accept()  # confirm the merge
+        time.sleep(1.2)
+        log = driver.find_element(By.ID, "log").text
+        docs = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("import: same-workspace .kb merge logged the payload count",
+              "Imported 1 docs." in log, log)
+        check("import: merged vault still holds exactly the original doc",
+              len(docs) == 1 and KNOWN_TITLE in (docs[0].text or ""),
+              [d.text for d in docs])
+        # second identical import: same-salt backup, existing id → duplicate
+        # skip (importKB 幂等导入) — the vault must not grow a second row
+        driver.execute_script("""
+          const f = new File([new Uint8Array(arguments[0])], 'same2.kb',
+                             { type: 'application/json' });
+          const dt = new DataTransfer();
+          dt.items.add(f);
+          const inp = document.getElementById('import-file');
+          inp.files = dt.files;
+          inp.dispatchEvent(new Event('change', { bubbles: true }));
+        """, list(same_kb_bytes))
+        wait_for(driver, EC.alert_is_present(), 6)
+        driver.switch_to.alert.accept()
+        time.sleep(1.2)
+        docs = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("import: re-import of the same backup is idempotent (no duplicates)",
+              len(docs) == 1 and KNOWN_TITLE in (docs[0].text or ""),
+              [d.text for d in docs])
+
         # ---- M3 sync: build a .kbsync tape, apply it to a fresh peer, verify
         # the peer converges and the carried tape is ciphertext-only.
         sync_res = driver.execute_async_script("""
