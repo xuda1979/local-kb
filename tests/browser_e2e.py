@@ -163,6 +163,24 @@ def main():
             log,
         )
 
+        # ---- create-time master-password gate (用户手册 3.1 requires setting
+        # the master password "并再次确认"; 4.1 可配置项 lists 主密码 "≥ 8 字符").
+        # A too-short password must be refused before any key derivation runs.
+        sn_short = driver.find_element(By.ID, "wsname")
+        sn_short.send_keys("ops-vault")
+        pw_short = driver.find_element(By.ID, "pw2")
+        pw_short.send_keys("short1")  # 7 chars — below the 8-char floor
+        cfm_short = driver.find_element(By.ID, "pw2b")
+        cfm_short.send_keys("short1")
+        driver.find_element(By.ID, "btn-create").click()
+        time.sleep(0.8)
+        log = driver.find_element(By.ID, "log").text
+        check("create refused when the master password is shorter than 8 chars",
+              "at least 8" in log.lower(), log)
+        sn_short.clear()
+        pw_short.clear()
+        cfm_short.clear()
+
         # ---- create workspace (confirm field: a typo is unrecoverable)
         wsname = driver.find_element(By.ID, "wsname")
         wsname.send_keys("ops-vault")
