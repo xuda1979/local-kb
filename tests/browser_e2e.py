@@ -2486,6 +2486,75 @@ console.log(out.join(" "));
         finally:
             _d12.quit()
 
+        # ---- 用户手册 3.1 (line 95): "若当前浏览器中已存在知识库，系统会拒绝
+        # 新建并提示改用主密码解锁，以免覆盖既有工作区。"
+        # Cycle 11 pinned the counterpart (create gate absent after vault removal);
+        # this pins the gate ACTUALLY FIRING. main.js:447 refuses via
+        # `if (vault) return log('A vault already exists in this browser — unlock
+        # with its master password instead.', true)`. On an isolated fresh profile
+        # we create a vault through the UI (so the create path is exercised),
+        # lock, then attempt a SECOND create with a different name and master
+        # password. The refusal must appear in #log, the original params (salt +
+        # name) must be intact, only one workspace record may exist in
+        # IndexedDB, and the original password must still unlock the vault.
+        _opts13 = Options()
+        _opts13.headless = True
+        _opts13.binary_location = fb
+        _opts13.set_preference("dom.indexedDB.enabled", True)
+        _d13 = webdriver.Firefox(options=_opts13)
+        try:
+            _d13.get(BASE + "/")
+            wait_for(_d13, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _d13.find_element(By.ID, "wsname").send_keys("cycle13-first-ws")
+            _d13.find_element(By.ID, "pw2").send_keys("cycle13 first pw")
+            _d13.find_element(By.ID, "pw2b").send_keys("cycle13 first pw")
+            _d13.find_element(By.ID, "btn-create").click()
+            wait_for(_d13, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+            wait_for(_d13, EC.visibility_of_element_located((By.ID, "btn-new")), 12)
+            _d13.find_element(By.ID, "btn-lock").click()
+            wait_for(_d13, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _params13 = _d13.execute_async_script(
+                "const done = arguments[arguments.length - 1];"
+                "(async () => { const { IndexedDBBackend } = await import('/idb.js');"
+                " const p = await new IndexedDBBackend('local-kb').getParams();"
+                " done(p ? { name: p.name, salt: p.salt } : null); })().catch(() => done(null));")
+            # Attempt a second workspace while the first vault is still present.
+            _d13.find_element(By.ID, "wsname").send_keys("cycle13-second-ws")
+            _d13.find_element(By.ID, "pw2").send_keys("cycle13 different pw")
+            _d13.find_element(By.ID, "pw2b").send_keys("cycle13 different pw")
+            _d13.find_element(By.ID, "btn-create").click()
+            time.sleep(1.0)
+            _log13 = _d13.find_element(By.ID, "log").text
+            check("manual 3.1: creating a second vault is refused with an unlock prompt",
+                  "A vault already exists in this browser" in _log13 and "unlock" in _log13,
+                  _log13)
+            check("manual 3.1: refusal leaves the app on the lock screen (no takeover)",
+                  _d13.find_element(By.ID, "view-unlock").is_displayed(), True)
+            _params13b = _d13.execute_async_script(
+                "const done = arguments[arguments.length - 1];"
+                "(async () => { const { IndexedDBBackend } = await import('/idb.js');"
+                " const p = await new IndexedDBBackend('local-kb').getParams();"
+                " done(p ? { name: p.name, salt: p.salt } : null); })().catch(() => done(null));")
+            check("manual 3.1: original vault params (name + salt) unchanged by the refusal",
+                  _params13 == _params13b and bool(_params13b) and
+                  _params13b.get("name") == "cycle13-first-ws",
+                  "%r -> %r" % (_params13, _params13b))
+            _dbdump13 = flatten_dump(get_db_dump(_d13))
+            check("manual 3.1: exactly one workspace record exists (no second vault)",
+                  _dbdump13.count("cycle13-first-ws") >= 1 and
+                  "cycle13-second-ws" not in _dbdump13,
+                  "first-ws=%d second-ws-absent=%s" % (
+                      _dbdump13.count("cycle13-first-ws"),
+                      "cycle13-second-ws" not in _dbdump13))
+            # The original master password must still open the vault.
+            _d13.find_element(By.ID, "pw").send_keys("cycle13 first pw")
+            _d13.find_element(By.ID, "btn-unlock").click()
+            wait_for(_d13, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+            check("manual 3.1: original master password still unlocks the vault",
+                  _d13.find_element(By.ID, "btn-lock").is_displayed(), True)
+        finally:
+            _d13.quit()
+
     finally:
         driver.quit()
 
