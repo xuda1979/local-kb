@@ -595,6 +595,129 @@ def main():
         check("AC5: clearing the box after a no-match restores the doc list",
               any(KNOWN_TITLE in (t.text or "") for t in rows), rows)
 
+        # ---- P1 doc switching: clicking another existing doc while the current
+        # one has unsaved edits must confirm (用户手册 3.3: "未保存的修改在切换
+        # 文档或离开页面时会收到提醒"). The new-doc guard pins the "new doc"
+        # path; this pins the third path — the doc-list row click. By now the
+        # table/heading/quote/fence content is persisted (the blocks above
+        # saved it), so the throwaway switch-target doc only needs a clean
+        # create; its raw removal below restores the exactly-one-doc vault all
+        # downstream sections (AC4, import, M3 sync, driver2 restore) assume.
+        # By now every edit above is persisted, so the editor is clean. Type
+        # into the main doc to mark it dirty — the new-doc guard (pinned by the
+        # block above) must still fire, and accepting discards only this
+        # throwaway marker.
+        area = driver.find_element(By.ID, "editor-area")
+        area.send_keys("\nSWITCH-LEADIN-MARKER")
+        time.sleep(0.3)
+        driver.find_element(By.ID, "btn-new").click()
+        time.sleep(0.6)
+        alert = driver.switch_to.alert
+        check("switch-doc: new-doc prompt still active on the dirty editor", True)
+        alert.accept()  # create the throwaway doc to switch to
+        time.sleep(1.0)
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "btn-save")), 12)
+        target_title = "SWITCH-TARGET-DOC"
+        title = driver.find_element(By.ID, "editor-title")
+        title.clear()
+        title.send_keys(target_title)
+        area = driver.find_element(By.ID, "editor-area")
+        area.clear()
+        area.send_keys("throwaway switch target body")
+        driver.find_element(By.ID, "btn-save").click()
+        time.sleep(1.2)
+
+        def row_by_text(text):
+            for r in driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row"):
+                if (r.text or "").strip() == text:
+                    return r
+            return None
+
+        main_row = row_by_text(KNOWN_TITLE)
+        check("switch-doc: main doc row present alongside the target",
+              main_row is not None and row_by_text(target_title) is not None,
+              [r.text for r in driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")])
+        main_row.click()  # clean switch: editor was just saved, not dirty
+        time.sleep(1.0)
+        check("switch-doc: clean switch opens the main doc",
+              KNOWN_TITLE in driver.find_element(By.ID, "editor-title").get_attribute("value"))
+
+        # Make the main doc dirty, then try to switch to the target doc: the
+        # confirm must appear; dismissing stays on the main doc with the edits.
+        area = driver.find_element(By.ID, "editor-area")
+        area.send_keys("\nSWITCH-DIRTY-PROOF")
+        time.sleep(0.3)
+        check("switch-doc: typing marks the doc dirty",
+              "edited" in driver.find_element(By.ID, "doc-meta").text.lower())
+        row_by_text(target_title).click()
+        time.sleep(0.6)
+        alert = driver.switch_to.alert
+        try:
+            alert_text = alert.text or ""
+        except Exception:
+            alert_text = ""
+        check("switching docs prompts to discard unsaved edits (manual 3.3 pin)",
+              "Discard unsaved changes" in alert_text, alert_text)
+        alert.dismiss()
+        time.sleep(0.3)
+        title_val = driver.find_element(By.ID, "editor-title").get_attribute("value")
+        area_val = driver.find_element(By.ID, "editor-area").get_attribute("value")
+        check("switch-doc: dismissing stays on the main doc with edits",
+              KNOWN_TITLE in title_val and "SWITCH-DIRTY-PROOF" in area_val,
+              (title_val, area_val[-120:]))
+
+        # Accepting the discard really switches documents.
+        row_by_text(target_title).click()
+        time.sleep(0.6)
+        alert = driver.switch_to.alert
+        alert.accept()
+        time.sleep(1.0)
+        check("switch-doc: accepting switches to the target doc",
+              target_title in driver.find_element(By.ID, "editor-title").get_attribute("value"))
+
+        # The throwaway doc must not survive this block: downstream checks
+        # depend on an exactly-one-doc vault (M3 sync receipt "0 docs synced
+        # in, 1 skipped" and the final delete leaving zero rows). Remove it via
+        # raw IndexedDB (deleteDoc, no tombstone) — a UI delete would write a
+        # tombstone into the meta store that then rides the sync tape.
+        cleanup = driver.execute_async_script("""
+            const cb = arguments[arguments.length - 1];
+            (async () => {
+              const { IndexedDBBackend } = await import('/idb.js');
+              const { openKb } = await import('/src/factory.js');
+              const db = new IndexedDBBackend();
+              const r = await openKb(db, 'correct horse battery staple');
+              if (!r.ok) return cb({ error: 'unlock failed', titles: [] });
+              const docs = await r.store.list();
+              const hit = docs.find((d) => d.title === 'SWITCH-TARGET-DOC');
+              if (hit) {
+                await db.deleteDoc(hit.id);
+                await db.delMeta('tombstone:' + hit.id);
+              }
+              return cb({ removed: hit ? hit.id : null,
+                          titles: docs.map((d) => d.title) });
+            })().catch((e) => cb({ error: String(e), titles: [] }));
+        """)
+        check("switch-doc: throwaway doc was pruned",
+              cleanup.get("removed") is not None, cleanup)
+        # Reload so the doc list and FTS index rebuild from the pruned store,
+        # then prove the vault is back to exactly the one main doc.
+        driver.refresh()
+        wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
+        pw = driver.find_element(By.ID, "pw")
+        pw.send_keys("correct horse battery staple")
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+        rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("switch-doc: vault is back to exactly one doc",
+              len(rows) == 1 and KNOWN_TITLE in (rows[0].text or ""),
+              [r.text for r in rows])
+        rows[0].click()
+        time.sleep(1.0)
+        check("switch-doc: unsaved edit was never persisted",
+              "SWITCH-DIRTY-PROOF" not in driver.find_element(By.ID, "editor-area").get_attribute("value"))
+
         # ---- AC4: .kb export - download and inspect (ciphertext only)
         # Read the export payload straight from page JS (same serialization as
         # the browser download; avoids post-launch download-dir configuration).
