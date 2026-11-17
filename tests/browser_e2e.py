@@ -18,6 +18,7 @@ import os
 import re
 import sys
 import time
+from datetime import datetime, timezone
 
 from selenium import webdriver
 from selenium.webdriver.firefox.options import Options
@@ -474,6 +475,36 @@ def main():
         check("AC4: .kb export is ciphertext (no plaintext)",
               all(needle not in export_json for needle in
                   [KNOWN_TITLE, "oscar-7", "48.8584N", "Project Snowstorm"]))
+
+        # ---- AC4: the real Export .kb button downloads a timestamp-stamped
+        # filename (用户手册 3.6: "浏览器下载仅含密文的备份文件（文件名含导出
+        # 时间）"). Capturing the click with a patched anchor avoids writing a
+        # real download to disk; the value under test is stampedName()'s
+        # `local-kb-backup-<UTC YYYY-MM-DD HH MM SS>.kb` pattern, which the
+        # restored file needs to be distinguishable from other backups.
+        before = datetime.now(timezone.utc).replace(microsecond=0)
+        captured = driver.execute_script("""
+          window.__captured = null;
+          const orig = HTMLAnchorElement.prototype.click;
+          HTMLAnchorElement.prototype.click = function () {
+            if (this.download) window.__captured = this.download;
+            orig.call(this);
+          };
+          document.getElementById('btn-export').click();
+          return true;
+        """)
+        name = driver.execute_script("return window.__captured")
+        after = datetime.now(timezone.utc).replace(microsecond=0)
+        time.sleep(0.5)
+        stamp_re = r"^local-kb-backup-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.kb$"
+        check("AC4: .kb export filename embeds the export timestamp",
+              bool(re.match(stamp_re, name or "")), name)
+        if name:
+            stamp = re.match(stamp_re, name).group(0) \
+                .replace("local-kb-backup-", "").replace(".kb", "")
+            ts = datetime.strptime(stamp, "%Y-%m-%d-%H-%M-%S").replace(tzinfo=timezone.utc)
+            check("AC4: .kb export filename timestamp is current (within the run window)",
+                  before <= ts <= after, f"ts={ts} before={before} after={after}")
 
         # ---- unlocked-state .kb import refusal (用户手册 3.7 场景二 / 5.1
         # 故障 3): importing a foreign-workspace or malformed backup while in
