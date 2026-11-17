@@ -1099,6 +1099,82 @@ def main():
               len(docs) == 1 and KNOWN_TITLE in (docs[0].text or ""),
               [d.text for d in docs])
 
+        # ---- 用户手册 3.8 LWW convergence, driven fully in-page on scratch
+        # peers so the main vault stays untouched (later blocks depend on
+        # exactly one doc). Peer A seeds this vault's tape (the OLD version),
+        # then edits the doc; the fresh updatedAt stamped after the PBKDF2
+        # unlock makes tape B strictly newer. A fresh peer that receives
+        # old-then-new must converge to the newest version; a fresh peer that
+        # receives new-then-old must skip the stale tape (newest updatedAt
+        # wins); reapplying the newest tape must be a no-op (idempotence).
+        lww = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { openKb } = await import('/src/factory.js');
+            const { buildTape, applyTapeFile } = await import('/src/syncfile.js');
+            const PW = 'correct horse battery staple';
+            const MARK = 'LWW-NEWER-PROOF-7d0e';
+            const hasMarker = (d) => !!d && (d.blocks || []).some((b) => (b.text || '').includes(MARK));
+            // Tape A = this vault's current state (the OLD version).
+            const main = new IndexedDBBackend();
+            const r = await openKb(main, PW);
+            if (!r.ok) return cb({ error: 'unlock' });
+            const docs = await r.store.list();
+            const docId = docs[0].id;
+            const tapeA = await buildTape(r.params, main);
+            const mkPeer = async (name) => {
+              const p = new IndexedDBBackend(name);
+              await p.saveParams(r.params);
+              const pr = await openKb(p, PW);
+              return { p, pr };
+            };
+            // Peer A: seed the OLD tape, then edit the doc. Unlocking re-runs
+            // PBKDF2, so nowISO() in store.edit stamps a strictly later
+            // updatedAt than anything tape A carries.
+            const a = await mkPeer('local-kb-peer-lww-a');
+            if (!a.pr.ok) return cb({ error: 'peer-a-unlock' });
+            const s1 = await applyTapeFile(a.p, tapeA);
+            const before = await a.pr.store.get(docId);
+            const newTitle = (before.title || '') + ' (LWW)';
+            const newBlocks = (before.blocks || []).concat({ type: 'paragraph', text: MARK });
+            await a.pr.store.edit(docId, newTitle, newBlocks);
+            const tapeB = await buildTape(r.params, a.p);
+            const oldTs = (tapeA.entries.find((e) => e.id === docId) || {}).updatedAt || '';
+            const newTs = (tapeB.entries.find((e) => e.id === docId) || {}).updatedAt || '';
+            // Peer B: old tape, then new tape -> newest wins (applied>0).
+            const b = await mkPeer('local-kb-peer-lww-b');
+            const r1 = await applyTapeFile(b.p, tapeA);
+            const r2 = await applyTapeFile(b.p, tapeB);
+            const db_ = await b.pr.store.get(docId);
+            // Peer C: new tape, then old tape -> stale tape skipped (applied=0).
+            const c = await mkPeer('local-kb-peer-lww-c');
+            const q1 = await applyTapeFile(c.p, tapeB);
+            const q2 = await applyTapeFile(c.p, tapeA);
+            const dc = await c.pr.store.get(docId);
+            // Reapplying the newest tape on C is a no-op (skipped).
+            const q3 = await applyTapeFile(c.p, tapeB);
+            const dc2 = await c.pr.store.get(docId);
+            return cb({
+              docId, oldTs, newTs,
+              bNewWins: r2.applied >= 1 && !!db_ && hasMarker(db_),
+              cStaleSkipped: q2.applied === 0,
+              cKeptNewer: q1.applied >= 1 && hasMarker(dc),
+              cReapplySkipped: q3.applied === 0 && hasMarker(dc2),
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """)
+        l = json.loads(json.dumps(lww))
+        check("sync: LWW newest-wins (manual 3.8) — newer tape applied over the older version",
+              l.get("bNewWins") is True and bool(l.get("oldTs")) and l.get("newTs", "") > l.get("oldTs", ""),
+              "oldTs=%s newTs=%s bNewWins=%s" % (l.get("oldTs"), l.get("newTs"), l.get("bNewWins")))
+        check("sync: LWW (manual 3.8) — stale tape cannot clobber the newer version",
+              l.get("cStaleSkipped") is True and l.get("cKeptNewer") is True,
+              "kept-newer=%s stale-applied-zero=%s" % (l.get("cKeptNewer"), l.get("cStaleSkipped")))
+        check("sync: LWW (manual 3.8) — reapplying the newest tape is idempotent",
+              l.get("cReapplySkipped") is True,
+              "reapply-applied-zero=%s" % (l.get("cReapplySkipped"),))
+
         # ---- lock-screen .kb restore onto a fresh machine (用户手册 3.7,
         # 登记表 功能4, SPEC AC4): a brand-new browser profile has no vault to
         # unlock and no way to reach the in-app Import .kb (view-app only), so
