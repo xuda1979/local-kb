@@ -758,6 +758,67 @@ def main():
         for needle in [NEW_PW, "correct horse battery staple"]:
             check(f"re-key: no master password plaintext in IndexedDB ('{needle}')", needle not in dump)
 
+        # ---- document delete: confirm gate + tombstone + persistence
+        # (用户手册 3.3: "删除文档：在文档列表对目标文档执行删除并确认；删除
+        #  会记录同步墓碑" and 5.1 故障 5: "再检查是否误删（删除有二次确认）").
+        # The delete flow must (a) do nothing until the confirm is accepted,
+        # (b) leave a tombstone in the encrypted meta store, and (c) persist —
+        # a reload + re-unlock must not resurrect the document. Pinned here at
+        # the end because everything above (AC5 search, AC4 export, sync,
+        # restore, re-key) needs this document to still exist.
+        rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        target = next(r for r in rows if KNOWN_TITLE in (r.text or ""))
+        target.click()
+        time.sleep(1.0)
+        driver.find_element(By.ID, "btn-delete").click()
+        time.sleep(0.8)
+        alert = driver.switch_to.alert
+        check("delete: confirm dialog gates the deletion (manual 5.1 故障 5)", True)
+        alert.dismiss()
+        time.sleep(0.6)
+        log = driver.find_element(By.ID, "log").text
+        rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("delete: dismissing the confirm keeps the document",
+              any(KNOWN_TITLE in (r.text or "") for r in rows), [r.text for r in rows])
+        check("delete: dismissing the confirm logs no deletion", "Document deleted." not in log, log)
+
+        # accept the confirm: the doc must leave the list, the editor clears,
+        # and the log confirms the action (manual 3.3 "删除……并确认")
+        driver.find_element(By.ID, "btn-delete").click()
+        time.sleep(0.8)
+        alert = driver.switch_to.alert
+        alert.accept()
+        time.sleep(1.2)
+        rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("delete: accepting the confirm removes the doc from the list",
+              len(rows) == 0, [r.text for r in rows])
+        log = driver.find_element(By.ID, "log").text
+        check("delete: log confirms the deletion", "Document deleted." in log, log)
+        title_val = driver.find_element(By.ID, "editor-title").get_attribute("value")
+        check("delete: editor cleared after deletion", title_val == "", title_val)
+
+        # a tombstone (the deleted doc's non-secret updatedAt) is kept in the
+        # meta store so the delete propagates through the sync tape
+        dump = flatten_dump(get_db_dump(driver))
+        check("delete: tombstone recorded in IndexedDB meta (manual 3.3)",
+              "tombstone:" in dump, dump[-200:])
+
+        # reload + re-unlock: the delete must have persisted (AC1 proof), the
+        # document stays gone instead of being resurrected from the store
+        driver.refresh()
+        wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
+        pw = driver.find_element(By.ID, "pw")
+        pw.send_keys(NEW_PW)
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list")), 12)
+        time.sleep(1.2)
+        rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+        check("delete: deleted doc stays absent after reload + re-unlock",
+              not any(KNOWN_TITLE in (r.text or "") for r in rows), [r.text for r in rows])
+        check("delete: doc list is empty after the only doc was deleted",
+              len(rows) == 0, [r.text for r in rows])
+
         # ---- AC6: offline — assert page JS/import loads (no network fallback)
         # The page itself is a static module graph served from /public; language
         # server already covered by reloads above. Also verify demo serves offline
