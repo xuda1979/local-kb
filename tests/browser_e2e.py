@@ -267,6 +267,24 @@ def main():
         log = driver.find_element(By.ID, "log").text
         check("AC3: wrong password denied", "Wrong master password" in log, log)
 
+        # ---- repeated failures stay non-destructive (用户手册 5.1 故障 1: "重复
+        # 失败不会损害数据"). Two more consecutive wrong attempts with *different*
+        # passwords must each be denied at the verifier and keep the lock screen
+        # up; the positive control (the correct password still unlocks the intact
+        # vault) is the AC1 check right below.
+        for i, wrong in enumerate(["definitively-wrong-password-2",
+                                   "definitively-wrong-password-3"], start=2):
+            pw.clear()
+            pw.send_keys(wrong)
+            driver.find_element(By.ID, "btn-unlock").click()
+            time.sleep(1.2)
+            log = driver.find_element(By.ID, "log").text
+            check(f"AC3: repeated wrong password #{i} denied (manual 5.1 故障 1)",
+                  "Wrong master password" in log, log)
+        check("AC3: repeated failures keep the lock screen up",
+              driver.find_element(By.ID, "view-app").get_attribute("style").find("block") == -1,
+              driver.find_element(By.ID, "view-app").get_attribute("style"))
+
         # correct password: opens and shows doc
         pw.clear()
         pw.send_keys("correct horse battery staple")
