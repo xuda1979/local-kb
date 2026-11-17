@@ -1023,6 +1023,49 @@ def main():
             check("restore: merged log confirms the restore by document count",
                   "Restored .kb backup" in log2, log2)
 
+            # ---- wrong master password on the lock-screen restore stays
+            # non-destructive (用户手册 3.2: "密码错误将被校验器直接拒绝，不会产生
+            # 任何可读数据，也不会破坏现有数据"; 5.3 Q1: "主密码无法找回"). The
+            # same-salt backup merges fine, but re-unlocking with the *typed*
+            # password must fail at the verifier, leaving the profile on the lock
+            # screen; the existing vault then still unlocks with the real password.
+            driver2.refresh()
+            wait_for(driver2, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            driver2.execute_script("""
+              const f = new File([new Uint8Array(arguments[0])], 'wrongpw-restore.kb',
+                                 { type: 'application/json' });
+              const dt = new DataTransfer();
+              dt.items.add(f);
+              const inp = document.getElementById('restore-file');
+              inp.files = dt.files;
+              inp.dispatchEvent(new Event('change', { bubbles: true }));
+            """, list(kb_bytes))
+            driver2.find_element(By.ID, "restore-pw").send_keys("definitely the wrong password")
+            driver2.find_element(By.ID, "btn-restore").click()
+            # same-salt backup over the existing vault -> merge confirm fires
+            wait_for(driver2, EC.alert_is_present(), 6)
+            driver2.switch_to.alert.accept()  # confirm: "…Merge the backup into it?"
+            # importKB merges idempotently, then openKb hits the verifier with the
+            # wrong password and fails -> the lock screen must stay up. The failed
+            # branch never switches views, so wait on the log message itself (the
+            # async restore path has not finished until the refusal line appears).
+            wait_for(driver2, lambda d: "not accepted" in (
+                d.find_element(By.ID, "log").text or ""), 12)
+            log2 = driver2.find_element(By.ID, "log").text
+            check("restore: wrong master password is refused after the merge",
+                  "Restored the backup, but its master password was not accepted." in log2, log2)
+            check("restore: profile stays on the lock screen after failed unlock",
+                  driver2.find_element(By.ID, "view-app").get_attribute("style").find("block") == -1,
+                  driver2.find_element(By.ID, "view-app").get_attribute("style"))
+            # the correct password still unlocks the untouched single-doc vault
+            driver2.find_element(By.ID, "pw").send_keys("correct horse battery staple")
+            driver2.find_element(By.ID, "btn-unlock").click()
+            wait_for(driver2, EC.visibility_of_element_located((By.ID, "view-app")), 15)
+            rows2 = driver2.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            t2 = [r.text for r in rows2]
+            check("restore: wrong-password attempt left the vault intact and unlockable (manual 3.2/Q1)",
+                  len(rows2) == 1 and KNOWN_TITLE in (t2[0] or ""), t2)
+
             # ---- a deleted doc cannot be resurrected by an OLD backup or tape
             # (用户手册 3.3: "删除会记录同步墓碑，之后即使从旧备份/旧同步磁带也
             # 无法 复活 该文档"). driver2's vault holds this exact workspace, so
@@ -1192,6 +1235,15 @@ def main():
         area_val = driver.find_element(By.ID, "editor-area").get_attribute("value")
         check("idle auto-lock: unsaved edit auto-saved before the lock (manual 3.2)",
               "IDLE-AUTOSAVE-PROOF" in area_val, area_val[-120:])
+
+        # The 3-second idle window was a test-only shrink for the block above.
+        # Restore a long window and re-arm, or every later block would race the
+        # auto-lock in its sleeps (the delete flow's modal confirm alone spans
+        # several 3-second windows, and timers keep running while an alert is up).
+        driver.execute_script("""
+          window.LOCAL_KB_IDLE_MS = 3600000;
+          document.dispatchEvent(new MouseEvent('mousemove'));
+        """)
 
         # IndexedDB must hold ciphertext only, with no new-password plaintext
         dump = flatten_dump(get_db_dump(driver))
