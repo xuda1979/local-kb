@@ -2703,6 +2703,121 @@ console.log(out.join(" "));
         check("manual 2.3/故障 6: without WebCrypto the app crypto refuses (no fallback)",
               _wr.returncode == 0 and "refuse:ok" in _wout, _wout)
 
+        # ---- 用户手册 2.1 (lines 55-56) + Q2 (line 272): "服务端仅负责文件
+        # 传输，不存储任何业务数据" / "演示服务器仅提供静态文件传输服务，不保存
+        # 业务数据" — pin the shipped demo server's statelessness on the wire:
+        # (a) static contract: demo.mjs may only read from disk — the source
+        # must contain no write/mkdir/rename/unlink/append call at all; and
+        # (b) runtime contract: a full real user session — create vault, save a
+        # doc carrying a unique canary — run against a live demo.mjs instance
+        # (PORT-alt, ephemeral socket, same spawn idiom as the 4.1/故障 6 block)
+        # must leave the served tree byte-for-byte unchanged, with the canary
+        # appearing in no served file: the only durable state is the browser's
+        # IndexedDB, never server-side storage.
+        import hashlib as _hlib16
+        import http.client as _hc16, socket as _sk16, subprocess as _sp16
+        _repo16 = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _skip16 = {".git", ".venv", "node_modules", "tests", ".future", "vendor"}
+
+        def _served_tree16():
+            _tr = {}
+            for _dp, _dns, _fns in os.walk(_repo16):
+                _dns[:] = sorted(d for d in _dns if d not in _skip16)
+                for _fn in sorted(_fns):
+                    _abs = os.path.join(_dp, _fn)
+                    with open(_abs, "rb") as _fh:
+                        _tr[os.path.relpath(_abs, _repo16)] = \
+                            _hlib16.sha256(_fh.read()).hexdigest()
+            return _tr
+
+        _wops16 = []
+        for _i, _ln in enumerate(open(os.path.join(_repo16, "server", "demo.mjs"),
+                                      encoding="utf-8").read().splitlines(), 1):
+            _s = _ln.strip()
+            if re.search(r"\b(writeFileSync|writeFile|createWriteStream|appendFile"
+                         r"|appendFileSync|writeSync|write\(|mkdir|rmdir|rmSync"
+                         r"|renameSync|unlink|truncate|copyFile)\s*\(", _s):
+                _wops16.append(f"{_i}: {_s}")
+        check("manual 2.1/Q2: demo server source performs no filesystem writes (read-only static server)",
+              not _wops16, str(_wops16[:5]) or "no write calls in demo.mjs")
+        _canary16 = "srv-stateless-%x" % int(time.time() * 1e9)
+        _before16 = _served_tree16()
+        _probe16 = _sk16.socket()
+        _probe16.bind(("127.0.0.1", 0))
+        _alt16 = _probe16.getsockname()[1]
+        _probe16.close()
+        _env16 = dict(os.environ)
+        _env16["PORT"] = str(_alt16)
+        _srv16 = _sp16.Popen(
+            ["node", "--enable-source-maps", "server/demo.mjs"],
+            cwd=_repo16, stdout=_sp16.DEVNULL, stderr=_sp16.DEVNULL, env=_env16,
+        )
+        try:
+            _deadline = time.time() + 10
+            _up16 = False
+            while time.time() < _deadline:
+                try:
+                    _cb = _hc16.HTTPConnection("127.0.0.1", _alt16, timeout=2)
+                    _cb.request("GET", "/api/health")
+                    _rb = _cb.getresponse()
+                    _hb = json.loads(_rb.read().decode("utf-8"))
+                    _cb.close()
+                    if _rb.status == 200 and _hb.get("ok") is True:
+                        _up16 = True
+                        break
+                except Exception:
+                    time.sleep(0.15)
+            check("manual 2.1/Q2: demo server instance answers on its ephemeral port",
+                  _up16, f"alt port {_alt16}")
+
+            driver.get(f"http://127.0.0.1:{_alt16}/")
+            wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            driver.find_element(By.ID, "wsname").send_keys("stateless-probe")
+            driver.find_element(By.ID, "pw2").send_keys("correct horse battery staple")
+            driver.find_element(By.ID, "pw2b").send_keys("correct horse battery staple")
+            driver.find_element(By.ID, "btn-create").click()
+            wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 15)
+            _lbl16 = driver.find_element(By.ID, "ws-label").text
+            check("manual 2.1/Q2: vault creates under the demo server origin (2.1 效果一致)",
+                  "stateless-probe" in _lbl16, _lbl16)
+            driver.find_element(By.ID, "btn-new").click()
+            time.sleep(1.0)
+            _t16 = driver.find_element(By.ID, "editor-title")
+            _t16.clear()
+            _t16.send_keys("Stateless Session Doc")
+            _a16 = driver.find_element(By.ID, "editor-area")
+            _a16.clear()
+            _a16.send_keys("demo-server session body " + _canary16)
+            driver.find_element(By.ID, "btn-save").click()
+            time.sleep(1.5)
+            _rows16 = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            check("manual 2.1/Q2: full user session completes on the demo server (vault + saved doc)",
+                  any("Stateless Session Doc" in (r.text or "") for r in _rows16),
+                  [r.text for r in _rows16])
+
+            _leak16 = []
+            for _rel16, _hash16 in _served_tree16().items():
+                _ab = os.path.join(_repo16, _rel16)
+                if os.path.getsize(_ab) < 2 * 1024 * 1024:
+                    with open(_ab, "r", encoding="utf-8", errors="replace") as _fh:
+                        if _canary16 in _fh.read():
+                            _leak16.append(_rel16)
+            check("manual 2.1/Q2: doc body canary appears in no served file (no server-side storage)",
+                  not _leak16, str(_leak16[:5]) or "canary absent from every served file")
+
+            _after16 = _served_tree16()
+            _diff16 = {k: (_before16[k], _after16.get(k))
+                       for k in set(_before16) | set(_after16)
+                       if _before16.get(k) != _after16.get(k)}
+            check("manual 2.1/Q2: served tree byte-identical after the session (server stores no business data)",
+                  not _diff16, str(_diff16)[:400] or "all served files unchanged")
+        finally:
+            _srv16.terminate()
+            try:
+                _srv16.wait(timeout=5)
+            finally:
+                _srv16.kill()
+
     finally:
         driver.quit()
 
