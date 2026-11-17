@@ -1169,6 +1169,108 @@ def main():
             finally:
                 _srv.kill()
 
+        # ---- 用户手册 2.1 "可将整个软件包根目录（含 public/ 与 src/…）部署到
+        # 任意静态站点服务器（Nginx、Apache、Web 服务器等），效果一致":
+        # the app must work *identically* when served by a plain static file
+        # server with no demo routes at all. Everything above runs against
+        # server/demo.mjs, which also answers /api/health; none of the page's
+        # behavior may depend on that route. Prove it by serving the exact same
+        # public/ + src/ tree from Python's stdlib http.server (bound to an
+        # ephemeral port, emulating Nginx/Apache docroot resolution), then
+        # driving the full create -> edit -> save -> list lifecycle over it —
+        # MIME parity for the ES module graph included.
+        import shutil as _sh, tempfile as _tf
+        _tmpd = _tf.TemporaryDirectory()
+        _repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        _publ = os.path.join(_repo, "public")
+        _sroot = _tmpd.name
+        for _fn in ("index.html", "main.js", "idb.js", "markdown.js"):
+            _sh.copyfile(os.path.join(_publ, _fn), os.path.join(_sroot, _fn))
+        os.symlink(os.path.join(_repo, "src"), os.path.join(_sroot, "src"))
+        _probe2 = _sk.socket()
+        _probe2.bind(("127.0.0.1", 0))
+        _alt2 = _probe2.getsockname()[1]
+        _probe2.close()
+        _srv2 = _sp.Popen(
+            [sys.executable, "-m", "http.server", str(_alt2),
+             "--bind", "127.0.0.1", "--directory", _sroot],
+            stdout=_sp.DEVNULL, stderr=_sp.DEVNULL,
+        )
+        try:
+            _deadline = time.time() + 10
+            _up = False
+            while time.time() < _deadline:
+                try:
+                    _c = _hc.HTTPConnection("127.0.0.1", _alt2, timeout=2)
+                    _c.request("GET", "/")
+                    _r = _c.getresponse()
+                    _b = _r.read().decode("utf-8", "replace")
+                    _c.close()
+                    if _r.status == 200 and "view-unlock" in _b:
+                        _up = True
+                        break
+                except Exception:
+                    time.sleep(0.15)
+            check("static: a plain static file server serves the app (manual 2.1)",
+                  _up, f"alt2 port {_alt2}")
+
+            # the foreign server structurally cannot answer /api/health — the
+            # app must need only static files, never demo.mjs's route
+            _c = _hc.HTTPConnection("127.0.0.1", _alt2, timeout=5)
+            _c.request("GET", "/api/health")
+            _r = _c.getresponse()
+            _c.close()
+            check("static: app needs no /api/health route (offline by construction)",
+                  _r.status == 404, f"status={_r.status}")
+
+            # module-graph MIME parity: .js must be served as a JS MIME type or
+            # Firefox would refuse the ES module and the app would never boot
+            _c = _hc.HTTPConnection("127.0.0.1", _alt2, timeout=5)
+            _c.request("GET", "/main.js")
+            _r = _c.getresponse()
+            _mjs = _r.read().decode("utf-8", "replace")
+            _ct = _r.getheader("Content-Type", "")
+            _c.close()
+            check("static: main.js served with a JS MIME + same bytes (module graph boots)",
+                  _r.status == 200 and "javascript" in _ct and "IDLE_LOCK_MS" in _mjs,
+                  _ct)
+
+            # full lifecycle on the foreign origin: create vault -> new doc ->
+            # save -> the doc lists (the same AC1 path, but with no demo server
+            # behind the wire). Navigating resets the page, so wait for the
+            # unlock gate to re-appear, then build a vault exactly like AC1.
+            driver.get(f"http://127.0.0.1:{_alt2}/")
+            wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            check("static: boots to the unlock gate on a foreign origin", True)
+            driver.find_element(By.ID, "wsname").send_keys("static-parity")
+            driver.find_element(By.ID, "pw2").send_keys("correct horse battery staple")
+            driver.find_element(By.ID, "pw2b").send_keys("correct horse battery staple")
+            driver.find_element(By.ID, "btn-create").click()
+            wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 15)
+            _lbl = driver.find_element(By.ID, "ws-label").text
+            check("static: vault creates on the static origin (2.1 效果一致)",
+                  "static-parity" in _lbl, _lbl)
+            driver.find_element(By.ID, "btn-new").click()
+            time.sleep(1.0)
+            _t = driver.find_element(By.ID, "editor-title")
+            _t.clear()
+            _t.send_keys("Static Parity Doc")
+            _a = driver.find_element(By.ID, "editor-area")
+            _a.clear()
+            _a.send_keys("served from a plain static file server; no demo routes.")
+            driver.find_element(By.ID, "btn-save").click()
+            time.sleep(1.5)
+            _rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            check("static: create+edit+persist works end-to-end (manual 2.1)",
+                  any("Static Parity Doc" in (r.text or "") for r in _rows),
+                  [r.text for r in _rows])
+        finally:
+            _srv2.terminate()
+            try:
+                _srv2.wait(timeout=5)
+            finally:
+                _srv2.kill()
+
     finally:
         driver.quit()
 
