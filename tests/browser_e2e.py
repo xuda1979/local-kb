@@ -1032,7 +1032,13 @@ def main():
         alert = driver.switch_to.alert
         check("delete: confirm dialog gates the deletion (manual 5.1 故障 5)", True)
         alert.dismiss()
-        time.sleep(0.6)
+        # the confirm returned false, so nothing may be deleted — but the doc
+        # list re-renders around the dialog, so wait for it to settle instead
+        # of racing a blind sleep against the recount (observed transiently
+        # empty at this spot in cycle 46; the log below proves no deletion).
+        wait_for(driver, EC.presence_of_element_located(
+            (By.CSS_SELECTOR, "#doc-list .doc-row")), 8)
+        time.sleep(0.3)
         log = driver.find_element(By.ID, "log").text
         rows = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
         check("delete: dismissing the confirm keeps the document",
@@ -1041,6 +1047,7 @@ def main():
 
         # accept the confirm: the doc must leave the list, the editor clears,
         # and the log confirms the action (manual 3.3 "删除……并确认")
+        wait_for(driver, EC.element_to_be_clickable((By.ID, "btn-delete")), 8)
         driver.find_element(By.ID, "btn-delete").click()
         time.sleep(0.8)
         alert = driver.switch_to.alert
@@ -1112,6 +1119,18 @@ def main():
         check("server: default port serves the app's index.html (manual 2.1/4.1)",
               pr.status == 200 and "view-unlock" in pbody and "Local KB" in pbody,
               f"status={pr.status} bytes={len(pbody)}")
+
+        # 用户手册 4.1 可配置项: "自动锁定 闲置 5 分钟" — the shipped default
+        # must stay exactly 5 * 60 * 1000 ms. The idle-lock behavior above is
+        # E2E-pinned through the window.LOCAL_KB_IDLE_MS override, so the real
+        # default value itself is only attested here, at the served source.
+        import urllib.request as _ur
+        with _ur.urlopen(f"http://{_host}:{_port}/main.js", timeout=8) as _r:
+            mjs = _r.read().decode("utf-8", "replace")
+        _idle = re.search(r"IDLE_LOCK_MS\s*=\s*(\d+)\s*\*\s*60\s*\*\s*1000", mjs)
+        check("server: served auto-lock default is 5 minutes (manual 4.1)",
+              _idle is not None and int(_idle.group(1)) == 5,
+              "IDLE_LOCK_MS" if _idle is None else _idle.group(0))
 
         # PORT override — a second demo instance bound to an ephemeral port must
         # answer on it (manual 4.1 "可用环境变量 PORT 覆盖" / 5.1 故障 6)
