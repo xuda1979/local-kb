@@ -513,6 +513,66 @@ def main():
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.4)
 
+        # ---- 用户手册 3.1: workspace name is *public metadata* stored in
+        # cleartext alongside the salt ("以明文形式作为公开元数据保存（与盐值
+        # 同级，不含任何文档内容），并参与密钥派生"). Two things the "surfaced
+        # in app header" check above does not prove: (a) the raw IndexedDB
+        # workspace record (id=1) really holds the name as plaintext next to
+        # the public salt — with exactly the public-metadata keys and zero
+        # document content (the current doc carries the known plaintext
+        # markers, so their absence from the record is meaningful); (b) the
+        # name actually *participates* in key derivation — same password +
+        # salt, different workspace name ⇒ a different derived workspace key
+        # (HKDF namespace), which is why machines must agree on the name
+        # before they can share a workspace.
+        ws_json = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const req = indexedDB.open('local-kb');
+            const db = await new Promise((res) => { req.onsuccess = () => res(req.result); req.onerror = () => res(null); });
+            if (!db) return cb(null);
+            const tx = db.transaction('workspace', 'readonly');
+            const q = tx.objectStore('workspace').get(1);
+            q.onsuccess = () => { db.close(); cb(JSON.stringify(q.result)); };
+            q.onerror = () => { db.close(); cb(null); };
+          })().catch(() => cb(null));
+        """)
+        ws_rec = json.loads(ws_json) if ws_json else {}
+        check("manual 3.1: workspace name stored in cleartext public metadata",
+              ws_rec.get("name") == "ops-vault", ws_rec.get("name"))
+        check("manual 3.1: name stored beside the public salt + crypto params",
+              bool(ws_rec.get("salt")) and ws_rec.get("iterations") == 310000
+              and isinstance(ws_rec.get("verifier"), dict), sorted(ws_rec.keys()))
+        ws_str = json.dumps(ws_rec)
+        check("manual 3.1: workspace record carries no document content",
+              all(n not in ws_str for n in
+                  [KNOWN_TITLE, "oscar-7", "48.8584N", "deflector", "Kyoto"]),
+              ws_str[:160])
+        deriv_json = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            try {
+              const req = indexedDB.open('local-kb');
+              const db = await new Promise((res) => { req.onsuccess = () => res(req.result); req.onerror = () => res(null); });
+              const tx = db.transaction('workspace', 'readonly');
+              const q = tx.objectStore('workspace').get(1);
+              const rec = await new Promise((res) => { q.onsuccess = () => res(q.result); q.onerror = () => res(null); });
+              db.close();
+              if (!rec) return cb("{}");
+              const { deriveKeyBytes, deriveWorkspaceKey } = await import('/src/crypto.js');
+              const pw = "correct horse battery staple";
+              const uk = new Uint8Array(await deriveKeyBytes(pw, rec.salt, rec.iterations));
+              const wk0 = new Uint8Array(await deriveWorkspaceKey(uk, rec.name));
+              const wk1 = new Uint8Array(await deriveWorkspaceKey(uk, rec.name + "x"));
+              const b64 = (b) => { let s = ""; for (const x of b) s += String.fromCharCode(x); return btoa(s); };
+              cb(JSON.stringify({ wsKey: b64(wk0), alt: b64(wk1), differs: b64(wk0) !== b64(wk1) }));
+            } catch (e) { cb(JSON.stringify({ error: String(e) })); }
+          })();
+        """)
+        deriv = json.loads(deriv_json) if deriv_json else {}
+        check("manual 3.1: workspace name participates in key derivation (HKDF)",
+              deriv.get("differs") is True, deriv)
+
         # ---- AC2: IndexedDB holds no plaintext
         dump = flatten_dump(get_db_dump(driver))
         for needle in [KNOWN_TITLE, "oscar-7", "48.8584N", "deflector", "Project Snowstorm", "Kyoto", "Osaka"]:
