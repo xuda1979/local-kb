@@ -538,6 +538,32 @@ def main():
               all(needle not in export_json for needle in
                   [KNOWN_TITLE, "oscar-7", "48.8584N", "Project Snowstorm"]))
 
+        # ---- AC4: .kb carries the crypto parameters claimed by 用户手册 4.1
+        # (PBKDF2 迭代次数 310,000; AES-256-GCM 12B IV) and 4.2 (每文档 DEK 由
+        # 工作区密钥 AES-256-GCM 封装后与文档密文同存). The workspace params are
+        # intentionally cleartext (public nonces/strength), never the password.
+        def _b64_bytes(s):
+            import base64 as _b64
+            pad = "=" * (-len(s) % 4)
+            return _b64.urlsafe_b64decode(s + pad)
+
+        ws = export_obj.get("workspace") or {}
+        check("AC4: workspaces store PBKDF2 iterations = 310000",
+              ws.get("iterations") == 310000, ws.get("iterations"))
+        check("AC4: workspace salt is 16 random bytes",
+              len(_b64_bytes(ws.get("salt", ""))) == 16, ws.get("salt"))
+        ver = ws.get("verifier") or {}
+        check("AC4: unlock verifier iv is a 12-byte AES-GCM IV",
+              len(_b64_bytes(ver.get("iv", ""))) == 12, ver.get("iv"))
+        for d in export_obj.get("documents", []):
+            check(f"AC4: doc {str(d.get('id'))[:8]} has a wrapped DEK (dekIv)",
+                  len(_b64_bytes(d.get("dekIv", ""))) == 12, d.get("dekIv"))
+            check(f"AC4: doc {str(d.get('id'))[:8]} ciphertext iv is 12 bytes",
+                  len(_b64_bytes(d.get("iv", ""))) == 12 and d.get("data"), d.get("iv"))
+        check("AC4: deleted docs do not reappear as .kb documents",
+              all(not str(d.get("id", "")).startswith("tombstone:")
+                  for d in export_obj.get("documents", [])))
+
         # ---- AC4: the real Export .kb button downloads a timestamp-stamped
         # filename (用户手册 3.6: "浏览器下载仅含密文的备份文件（文件名含导出
         # 时间）"). Capturing the click with a patched anchor avoids writing a

@@ -2493,6 +2493,26 @@ def main():
         check("AC4: .kb export is ciphertext (no plaintext)",
               all(needle not in export_json for needle in
                   [KNOWN_TITLE, "oscar-7", "48.8584N", "Project Snowstorm"]))
+        def _b64_bytes(s):
+            import base64 as _b64
+            pad = "=" * (-len(s) % 4)
+            return _b64.urlsafe_b64decode(s + pad)
+        ws = export_obj.get("workspace") or {}
+        check("AC4: workspaces store PBKDF2 iterations = 310000",
+              ws.get("iterations") == 310000, ws.get("iterations"))
+        check("AC4: workspace salt is 16 random bytes",
+              len(_b64_bytes(ws.get("salt", ""))) == 16, ws.get("salt"))
+        ver = ws.get("verifier") or {}
+        check("AC4: unlock verifier iv is a 12-byte AES-GCM IV",
+              len(_b64_bytes(ver.get("iv", ""))) == 12, ver.get("iv"))
+        for d in export_obj.get("documents", []):
+            check(f"AC4: doc {str(d.get('id'))[:8]} has a wrapped DEK (dekIv)",
+                  len(_b64_bytes(d.get("dekIv", ""))) == 12, d.get("dekIv"))
+            check(f"AC4: doc {str(d.get('id'))[:8]} ciphertext iv is 12 bytes",
+                  len(_b64_bytes(d.get("iv", ""))) == 12 and d.get("data"), d.get("iv"))
+        check("AC4: deleted docs do not reappear as .kb documents",
+              all(not str(d.get("id", "")).startswith("tombstone:")
+                  for d in export_obj.get("documents", [])))
         before = datetime.now(timezone.utc).replace(microsecond=0)
         captured = driver.execute_script("""
           window.__captured = null;
@@ -2520,6 +2540,9 @@ def main():
         foreign["workspace"]["salt"] = "AAAAAAAAAAAAAAAAAAAAAA"
         foreign_bytes = json.dumps(foreign).encode("utf-8")
         driver.execute_script("""
+第 48 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
           const f = new File([new Uint8Array(arguments[0])], 'foreign.kb',
                              { type: 'application/json' });
           const dt = new DataTransfer();
@@ -2540,9 +2563,6 @@ def main():
               [d.text for d in docs])
         broken_bytes = json.dumps({"app": "local-kb", "format": 1}).encode("utf-8")
         driver.execute_script("""
-第 48 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
           const f = new File([new Uint8Array(arguments[0])], 'broken.kb',
                              { type: 'application/json' });
           const dt = new DataTransfer();
@@ -2573,6 +2593,9 @@ def main():
         log = driver.find_element(By.ID, "log").text
         docs = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
         check("import: same-workspace .kb merge logged the payload count",
+第 49 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
               "Imported 1 docs." in log, log)
         check("import: merged vault still holds exactly the original doc",
               len(docs) == 1 and KNOWN_TITLE in (docs[0].text or ""),
@@ -2593,9 +2616,6 @@ def main():
         check("import: re-import of the same backup is idempotent (no duplicates)",
               len(docs) == 1 and KNOWN_TITLE in (docs[0].text or ""),
               [d.text for d in docs])
-第 49 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
         sync_res = driver.execute_async_script("""
           const cb = arguments[arguments.length - 1];
           (async () => {
@@ -2626,6 +2646,9 @@ def main():
         check("M3: sync tape carried a doc (peer lists " + ids_json + ")", sync_obj.get("peerDocs", 0) >= 1)
         sync_before = datetime.now(timezone.utc).replace(microsecond=0)
         driver.execute_script("""
+第 50 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
           window.__captured = null;
           document.getElementById('btn-sync-out').click();
           return true;
@@ -2646,9 +2669,6 @@ def main():
         log = driver.find_element(By.ID, "log").text
         check("sync: Sync out logs the ciphertext-only tape receipt",
               "Wrote sync tape" in log and "ciphertext only" in log, log)
-第 50 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
         fresh_tape = driver.execute_async_script("""
           const cb = arguments[arguments.length - 1];
           (async () => {
@@ -2679,6 +2699,9 @@ def main():
               "0 docs synced in, 1 skipped." in log, log)
         check("sync: same-workspace Sync in left the vault at exactly one doc",
               len(docs) == 1 and KNOWN_TITLE in (docs[0].text or ""),
+第 51 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
               [d.text for d in docs])
         foreign_tape = json.loads(fresh_tape)
         foreign_tape["workspace"]["salt"] = "AAAAAAAAAAAAAAAAAAAAAA"
@@ -2699,9 +2722,6 @@ def main():
               "Sync refused" in log and "different workspace" in log, log)
         check("sync: refused tape left the vault untouched",
               len(docs) == 1 and KNOWN_TITLE in (docs[0].text or ""),
-第 51 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
               [d.text for d in docs])
         kb_bytes = export_json.encode("utf-8")
         opts2 = Options()
@@ -2732,6 +2752,9 @@ def main():
             check("restore: refused .kb left the fresh profile locked",
                   driver2.find_element(By.ID, "view-unlock").is_displayed())
             driver2.execute_script("""
+第 52 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
               const f = new File([new Uint8Array(arguments[0])], 'backup.kb',
                                  { type: 'application/json' });
               const dt = new DataTransfer();
@@ -2752,9 +2775,6 @@ def main():
             check("restore: backup doc appears in the fresh vault",
                   any(KNOWN_TITLE in (r.text or "") for r in rows), [r.text for r in rows])
             log2 = driver2.find_element(By.ID, "log").text
-第 52 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
             check("restore: log confirms the restore by document count",
                   "Restored .kb backup" in log2, log2)
         finally:
@@ -2785,6 +2805,9 @@ def main():
         wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
         docs = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
         check("re-key: new password unlocks vault with docs intact",
+第 53 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
               any(KNOWN_TITLE in d.text for d in docs), [d.text for d in docs])
         driver.find_element(By.ID, "btn-lock").click()
         wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
@@ -2805,9 +2828,6 @@ def main():
         docs = driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
         check("lock: re-unlock shows the docs again (data intact)",
               any(KNOWN_TITLE in d.text for d in docs), [d.text for d in docs])
-第 53 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
         driver.find_element(By.CSS_SELECTOR, "#doc-list .doc-row").click()
         time.sleep(1.0)
         area = driver.find_element(By.ID, "editor-area")
@@ -2838,6 +2858,9 @@ def main():
         area_val = driver.find_element(By.ID, "editor-area").get_attribute("value")
         check("idle auto-lock: unsaved edit auto-saved before the lock (manual 3.2)",
               "IDLE-AUTOSAVE-PROOF" in area_val, area_val[-120:])
+第 54 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
         dump = flatten_dump(get_db_dump(driver))
         for needle in [NEW_PW, "correct horse battery staple"]:
             check(f"re-key: no master password plaintext in IndexedDB ('{needle}')", needle not in dump)
@@ -2858,9 +2881,6 @@ def main():
         check("delete: dismissing the confirm logs no deletion", "Document deleted." not in log, log)
         driver.find_element(By.ID, "btn-delete").click()
         time.sleep(0.8)
-第 54 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
         alert = driver.switch_to.alert
         alert.accept()
         time.sleep(1.2)
@@ -2891,6 +2911,9 @@ def main():
         check("AC6: page references no external network",
               all(x not in html for x in ["https://", "//cdn", "http://"]))
     finally:
+第 55 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
         driver.quit()
     if failures:
         print("\nBROWSER E2E FAILURES:", failures)
@@ -2911,9 +2934,6 @@ import {
   fromBase64,
   utf8e,
   utf8d,
-第 55 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 } from '../src/crypto.js';
 test('base64url round trip preserves bytes', () => {
   for (const n of [1, 3, 16, 32, 33, 64, 129, 1024]) {
@@ -2944,6 +2964,9 @@ test('AES-256-GCM encrypt/decrypt round trip with tamper detection', async () =>
   const msg = utf8e.encode('attack at dawn');
   const { iv, data } = await encrypt(key, msg);
   assert.equal(data.length >= msg.length + 16, true, 'ciphertext includes GCM tag');
+第 56 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   const plain = utf8d.decode(await decrypt(key, iv, data));
   assert.equal(plain, 'attack at dawn');
   await assert.rejects(() =>
@@ -2964,9 +2987,6 @@ import { createKb, openKb } from '../src/factory.js';
 import { SQLiteBackend } from '../src/db.js';
 import { tempDbPath } from './helpers.mjs';
 const PW = 'some-password';
-第 56 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 test('each document has a distinct wrapped DEK', async () => {
   const b = new SQLiteBackend(':memory:');
   await createKb(b, PW);
@@ -2997,6 +3017,9 @@ test('tampering with a wrapped DEK makes the document unreadable', async () => {
   await r.store.create('d1', 'Doc One', [{ type: 'paragraph', text: 'secret text' }]);
   const doc = await b.getDoc('d1');
   await b.putDoc({ ...doc, dekData: (doc.dekData[0] === 'A' ? 'B' : 'A') + doc.dekData.slice(1) });
+第 57 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   const got = await r.store.get('d1');
   assert.equal(got, null, 'corrupted DEK must not yield a readable doc');
 });
@@ -3017,9 +3040,6 @@ test('block model round trips', () => {
     createBlock('heading', 'H1'),
     createBlock('paragraph', 'body'),
     createBlock('code', 'let x = 1'),
-第 57 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
     createBlock('quote', 'cited'),
     createBlock('table', 'a|b'),
   ]);
@@ -3050,6 +3070,9 @@ test('fenced code round-trips losslessly (lang tag, both fences)', () => {
   assert.deepEqual(blocks[1], { type: 'code', text: '~~~bash\necho hi\n~~~' });
   assert.equal(blocksToMarkdown(blocks), text);
   const blank = textToBlocks('```\na\n\nb\n```');
+第 58 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   assert.equal(blank.length, 1);
   assert.equal(blank[0].text, '```\na\n\nb\n```');
 });
@@ -3070,9 +3093,6 @@ test('code regions are stable under re-emit + re-parse (no drift)', () => {
 });
 test('heading levels #..###### round-trip losslessly (user manual 3.5)', () => {
   const text = [
-第 58 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
     '# One',
     '## Two',
     '### Three',
@@ -3103,6 +3123,9 @@ test('legacy marker-less heading/quote blocks still re-emit their marker', () =>
     { type: 'heading', text: 'Old Title' },
     { type: 'quote', text: 'old cite' },
   ]);
+第 59 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   assert.equal(md, '# Old Title\n> old cite');
   const again = blocksToMarkdown([
     { type: 'heading', text: '## Keeps Level' },
@@ -3123,9 +3146,6 @@ test('textToBlocks groups consecutive pipe rows into one table block', () => {
   const text = '# T\n\n| a | b |\n| --- | --- |\n| 1 | 2 |';
   const blocks = textToBlocks(text);
   assert.equal(blocks.length, 2, 'heading + one table block');
-第 59 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   assert.deepEqual(blocks[1], {
     type: 'table',
     text: '| a | b |\n| --- | --- |\n| 1 | 2 |',
@@ -3156,6 +3176,9 @@ test('escaped pipe in a cell stays inside the table block', () => {
   assert.equal(blocks[0].text, line);
   assert.equal(textToBlocks('a | b (not a table opening)').length, 1);
   assert.equal(textToBlocks('no pipes at all')[0].type, 'paragraph');
+第 60 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
 });
 test('table cells are searchable via plaintextForIndex', async () => {
   const { createKb, openKb } = await import('../src/factory.js');
@@ -3176,9 +3199,6 @@ test('fenced code body stays searchable (user manual 3.4: 代码全文匹配)', 
   const { tempDbPath } = await import('./helpers.mjs');
   const b = new SQLiteBackend(tempDbPath());
   await createKb(b, 'pw');
-第 60 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const r = await openKb(b, 'pw');
   const blocks = textToBlocks('```python\ndef encrypt(data):\n    return "x9k2"\n```');
   assert.equal(blocks.length, 1);
@@ -3209,6 +3229,9 @@ import { SQLiteBackend } from '../src/db.js';
 test('malformed FTS5 queries return empty results, never throw', async () => {
   const b = new SQLiteBackend(':memory:');
   await createKb(b, 'pw');
+第 61 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   const r = await openKb(b, 'pw');
   await r.store.create('x1', 'Apple Harvest', [{ type: 'paragraph', text: 'apples and oranges' }]);
   for (const bad of ['"', '*', '(', '"unterminated', '-', 'AND', 'NEAR(', 'a[', "']"]) {
@@ -3229,9 +3252,6 @@ test('monotonic rowids: many docs keep distinct index slots', async () => {
   for (let i = 0; i < 500; i++) {
     const needle = 'nfx' + String(i).padStart(4, '0');
     const hits = await r.store.search(needle);
-第 61 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
     assert.ok(hits.some((h) => h.id === 'doc' + i), needle + ' finds its own index row');
   }
   assert.equal((await b._rowidFor('doc0')) !== (await b._rowidFor('doc1')), true);
@@ -3262,6 +3282,9 @@ const KNOWN_TITLE = 'Forbidden Compound Registry';
 const KNOWN_BODY = 'vault-level-4; clearance code: romeo-alpha-7; stockpile #44';
 before(() => {
 });
+第 62 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
 function freshAdapter(name = 'local-kb-test') {
   return new IndexedDBBackend(name);
 }
@@ -3282,9 +3305,6 @@ test('AC1: full lifecycle over IndexedDB (create/edit/delete across reopen)', as
     const ad = freshAdapter(dbName);
     await createKb(ad, PW, 'team-kb');
     const r = await openKb(ad, PW);
-第 62 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
     assert.equal(r.ok, true);
     await r.store.create('d1', 'First Doc', [{ type: 'paragraph', text: 'the contents' }]);
     await r.store.edit('d1', 'First Doc v2', [{ type: 'paragraph', text: 'second contents' }]);
@@ -3315,6 +3335,9 @@ test('AC2: no plaintext in IndexedDB records', async () => {
   await r.store.edit('x1', KNOWN_TITLE + ' UPDATED', [{ type: 'paragraph', text: KNOWN_BODY + ' (edited)' }]);
   const raw = await dumpAllStrings(ad);
   for (const needle of [
+第 63 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
     KNOWN_TITLE,
     KNOWN_BODY,
     'romeo-alpha-7',
@@ -3335,9 +3358,6 @@ test('AC3: wrong master password denies access over IndexedDB', async () => {
   const dbName = 'ac3-' + Date.now();
   const ad = freshAdapter(dbName);
   await createKb(ad, PW);
-第 63 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const ok = await openKb(ad, 'totally-wrong');
   assert.equal(ok.ok, false);
   const ok2 = await openKb(ad, PW);
@@ -3368,6 +3388,9 @@ test('workspace name used as HKDF namespace', async () => {
   await createKb(ad, PW, 'workspace-alpha');
   const r = await openKb(ad, PW);
   await r.store.create('n1', 'Namespace Check', [{ type: 'paragraph', text: 'data under alpha' }]);
+第 64 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   const doc = await r.store.get('n1');
   assert.equal(doc.title, 'Namespace Check');
   const ad2 = freshAdapter(dbName + '-beta');
@@ -3388,9 +3411,6 @@ test('multi-word search: space-separated keywords AND-match (user manual 3.4 技
   await r.store.create('s2', 'Unrelated', [{ type: 'paragraph', text: 'only oscar here, no storm' }]);
   const hits = await r.store.search('oscar snowstorm');
   assert.ok(hits.some((h) => h.id === 's1'), '"oscar snowstorm" must AND-match s1');
-第 64 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   assert.ok(!hits.some((h) => h.id === 's2'), 'doc missing one token must not match');
   const single = await r.store.search('ops');
   assert.ok(single.some((h) => h.id === 's1'));
@@ -3421,6 +3441,9 @@ test('import of a different workspace over existing vault is refused', async () 
   const path = tempDbPath();
   const { b, r } = await makeKb(path, 'vault-blue', [['keep', 'Keep Me', 'original']]);
   const other = tempDbPath();
+第 65 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   const src = await makeKb(other, 'vault-red', [['intruder', 'Intruder', 'from another vault']]);
   const rows = [];
   for (const { id } of await src.b.listDocs()) rows.push(await src.b.getDoc(id));
@@ -3441,9 +3464,6 @@ test('re-importing the same backup is idempotent', async () => {
   const path = tempDbPath();
   const src = await makeKb(path, 'vault-same', [['d1', 'Same', 'dupe test']]);
   const rows = [];
-第 65 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   for (const { id } of await src.b.listDocs()) rows.push(await src.b.getDoc(id));
   const kb = exportKB(await src.b.getParams(), rows);
   const bytes = serializeKB(kb);
@@ -3474,6 +3494,9 @@ test('malformed doc rows are skipped, valid rows still import', async () => {
     documents: [
       { id: 'good', dekIv: 'a', dekData: 'b', iv: 'c', data: 'd', createdAt: '', updatedAt: '' },
       null,
+第 66 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
       { id: 'broken', dekIv: '', dekData: '', iv: '', data: '' },
     ],
   };
@@ -3494,9 +3517,6 @@ test('old .kb backup cannot resurrect a doc deleted after the export', async () 
   const kb = exportKB(await b.getParams(), rows);
   const bytes = serializeKB(kb);
   await r.store.delete('gone');
-第 66 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   assert.equal((await r.store.list()).length, 0, 'doc deleted locally');
   assert.ok((await b.listTombstones()).some((t) => t.id === 'gone'), 'tombstone recorded');
   const res = await importKB(b, deserializeKB(bytes));
@@ -3527,6 +3547,9 @@ test('blockquote renders', () => {
 });
 test('lists render as ul/ol', () => {
   assert.equal(renderMarkdown('- a\n- b\n- c'), '<ul><li>a</li><li>b</li><li>c</li></ul>');
+第 67 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   assert.equal(renderMarkdown('1. first\n2. second'), '<ol><li>first</li><li>second</li></ol>');
 });
 test('horizontal rule', () => {
@@ -3547,9 +3570,6 @@ test('links escape and reject dangerous schemes', () => {
   assert.ok(!injected.includes('<script>'));
   assert.ok(injected.includes('&lt;script&gt;'));
 });
-第 67 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 test('table renders header and rows', () => {
   const md = '| a | b |\n| --- | --- |\n| 1 | 2 |';
   const out = renderMarkdown(md);
@@ -3580,6 +3600,9 @@ test('escaped pipe at row end does not create an empty last cell', () => {
 test('escaped pipe stays XSS-safe inside a table cell', () => {
   const out = renderMarkdown('| <script>x\\|y</script> | unsafe |');
   assert.ok(!out.includes('<script>'), 'raw HTML remains inert');
+第 68 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   assert.ok(out.includes('&lt;script&gt;x|y&lt;/script&gt;'));
 });
 test('markdown of all block types stays balanced', () => {
@@ -3600,9 +3623,6 @@ test('empty input renders empty', () => {
 });
 // ===== 文件: tests/no-plaintext-on-disk.test.mjs  =====
 import { test } from 'node:test';
-第 68 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { createKb, openKb } from '../src/factory.js';
@@ -3633,6 +3653,9 @@ test('no plaintext anywhere in the SQLite file', async () => {
     'var key = "shhh";',
     'alpine::mount::delta',
     'second version',
+第 69 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
     'master-pw-123',
     'super-secret',
     'canyon-hideout',
@@ -3653,9 +3676,6 @@ test('doc title/body not discoverable from the .kb export string', async () => {
   const r = await openKb(b, PW);
   await r.store.create('x1', 'Oppression Studies Manual', [
     { type: 'paragraph', text: 'Cryo-Freeze Chamber access codes: 8-9-2' },
-第 69 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   ]);
   const rows = [];
   for (const { id } of await b.listDocs()) {
@@ -3686,6 +3706,9 @@ test('create -> reopen -> read; edit -> reopen -> read; delete -> reopen -> gone
     { type: 'paragraph', text: 'Paris in the springtime' },
   ]);
   assert.equal(doc.title, 'My Travel Notes');
+第 70 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   b.close();
   b = new SQLiteBackend(path);
   r = await openKb(b, PW);
@@ -3706,9 +3729,6 @@ test('create -> reopen -> read; edit -> reopen -> read; delete -> reopen -> gone
   b.close();
   b = new SQLiteBackend(path);
   r = await openKb(b, PW);
-第 70 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const after = await r.store.get('doc-1');
   assert.equal(after, null);
   const list = await r.store.list();
@@ -3739,6 +3759,9 @@ const NEEDLES = [
   NEW_PW,
   WRONG_PASSWORD,
 ];
+第 71 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
 function assertNoPlaintextOnDisk(dbPath) {
   const blob = readFileSync(dbPath).toString('latin1');
   for (const needle of NEEDLES) {
@@ -3759,9 +3782,6 @@ async function seededVault() {
 }
 test('changeMasterPassword refuses a wrong current password and mutates nothing', async () => {
   const { path, b, params } = await seededVault();
-第 71 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const before = await b.getParams();
   const res = await changeMasterPassword(b, WRONG_PASSWORD, NEW_PW);
   assert.deepEqual(res, { ok: false, error: 'wrong-master-password' });
@@ -3792,6 +3812,9 @@ test('changeMasterPassword re-keys the vault: old pw denied, new pw opens docs',
   assert.ok(hits.some((h) => h.id === 'd1'), 'search works after re-key');
   assertNoPlaintextOnDisk(path);
   b.close();
+第 72 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   rmrf(path);
 });
 test('re-key is stable across a second rotation and keeps old passwords inert', async () => {
@@ -3812,9 +3835,6 @@ test('re-key is stable across a second rotation and keeps old passwords inert', 
   b.close();
   rmrf(path);
 });
-第 72 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 test('changeMasterPassword on an empty adapter is refused (no-workspace)', async () => {
   const path = tempDbPath();
   const b = new SQLiteBackend(path);
@@ -3845,6 +3865,9 @@ import { tempDbPath } from './helpers.mjs';
 test('title words are searchable', async () => {
   const b = new SQLiteBackend(':memory:');
   await createKb(b, 'pw');
+第 73 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   const r = await openKb(b, 'pw');
   await r.store.create('t1', 'Quarterly Roadmap Review', [{ type: 'paragraph', text: 'planning discussion' }]);
   const hits = await r.store.search('roadmap');
@@ -3865,9 +3888,6 @@ test('FTS index is rebuilt on unlock (reopen searchable)', async () => {
   b.close();
 });
 test('idb adapter rebuilds FTS on unlock', async () => {
-第 73 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const auto = await import('../vendor/fake-indexeddb/auto/index.mjs');
   const { IndexedDBBackend } = await import('../public/idb.js');
   const dbName = 'fts-rebuild-' + Date.now();
@@ -3898,6 +3918,9 @@ async function seeded() {
     { type: 'heading', text: 'AES' },
     { type: 'paragraph', text: 'talking about keys and ciphertext and gcm' },
   ]);
+第 74 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   return { b, r };
 }
 test('FT5 finds matching document by body word', async () => {
@@ -3918,9 +3941,6 @@ test('search for missing term returns no hits', async () => {
   const hits = await r.store.search('zanzibarbazooka');
   assert.equal(hits.length, 0);
   b.close();
-第 74 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 });
 test('space-separated keywords AND-match (user manual 3.4 技巧)', async () => {
   const { r, b } = await seeded();
@@ -3951,6 +3971,9 @@ import { mergeTape, applyTape, localTape } from '../src/sync.js';
 import { tempDbPath, KNOWN_PLAINTEXT } from './helpers.mjs';
 const PW = 'sync-pw';
 async function openSeed(path, docs, params) {
+第 75 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   const b = new SQLiteBackend(path);
   if (params) {
     await b.saveParams(params); 
@@ -3971,9 +3994,6 @@ test('localTape carries only ciphertext (zero-knowledge), applyTape idempotent',
   assert.equal(tape.length, 1);
   const blob = JSON.stringify(tape);
   assert.equal(blob.includes(KNOWN_PLAINTEXT), false, 'no plaintext in the tape');
-第 75 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   assert.equal(blob.includes('Secret Plan'), false, 'no title plaintext in the tape');
   assert.ok(tape[0].dekData && tape[0].data, 'tape entry carries wrapped DEK + ciphertext');
   const dst = tempDbPath();
@@ -4004,6 +4024,9 @@ test('two stores converge after exchanging tapes (with in-memory FTS rebuild)', 
     const docs = await r.store.list();
     assert.deepEqual(docs.map((d) => d.id).sort(), ['a', 'b'], label + ' has both docs');
     const a = await r.store.get('a');
+第 76 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
     assert.equal(a.blocks[0].text, 'alpha body', label + ' doc a readable');
     assert.ok((await r.store.search('beta')).some((h) => h.id === 'b'), label + ' searches merged doc');
     b.close();
@@ -4024,9 +4047,6 @@ test('LWW merge converges deterministically for concurrent writes', async () => 
   const newer = mk('2026-01-02T00:00:00.000Z', 'w2', 'N');
   const ab = mergeTape([older], [newer]);
   const ba = mergeTape([newer], [older]);
-第 76 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   assert.equal(ab.length, 1);
   assert.equal(ab[0].data, ba[0].data, 'order-independent winner');
   assert.equal(ab[0].updatedAt, '2026-01-02T00:00:00.000Z', 'newest wins');
@@ -4057,6 +4077,9 @@ test('localTape drops the stale tombstone after a doc is deleted and re-created'
   s.b.close();
   peer.b.close();
 });
+第 77 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
 test('a stale tape cannot resurrect a doc deleted on the peer (tombstone wins)', async () => {
   const p1 = tempDbPath();
   const s1 = await openSeed(p1, [['shared', 'Shared Doc', 'v1 body']]);
@@ -4077,9 +4100,6 @@ test('a stale tape cannot resurrect a doc deleted on the peer (tombstone wins)',
   assert.ok(tombs.some((t) => t.id === 'shared'), 'tombstone is still recorded');
   s1.b.close();
   s2.b.close();
-第 77 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
 });
 test('a tape newer than the tombstone recreates the doc (delete -> recreate)', async () => {
   const p1 = tempDbPath();
@@ -4110,6 +4130,9 @@ test('a tape newer than the tombstone recreates the doc (delete -> recreate)', a
   assert.ok(!tombs.some((t) => t.id === 'shared'), 'stale tombstone cleared on recreate');
   s1.b.close();
   s2.b.close();
+第 78 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
 });
 // ===== 文件: tests/syncfile.test.mjs  =====
 import { test } from 'node:test';
@@ -4130,9 +4153,6 @@ async function node(path, params, docs) {
   let wsParams = params;
   if (!params) {
     const { workspace } = await createKb(b, PW, 'team-ws');
-第 78 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
     wsParams = await b.getParams();
     assert.ok(workspace, 'workspace created');
   } else {
@@ -4163,6 +4183,9 @@ test('applyTapeFile syncs docs and tombstones to an empty peer', async () => {
   const tape0 = await buildTape(s2.params, s2.b); 
   await applyTapeFile(s1.b, tape0).then(() => {
   });
+第 79 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
   await s1.r.store.delete('removed');
   const tape = await buildTape(s1.params, s1.b);
   const res = await applyTapeFile(s2.b, tape);
@@ -4183,9 +4206,6 @@ test('applyTapeFile carries zero plaintext and is idempotent', async () => {
   assert.ok(tape.entries[0].dekData && tape.entries[0].data, 'tape entry is ciphertext');
   const dst = await node(tempDbPath(), s.params, []);
   const first = await applyTapeFile(dst.b, tape);
-第 79 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   assert.equal(first.applied, 1, 'first apply imports the doc');
   assert.equal((await dst.r.store.list()).length, 1);
   const again = await applyTapeFile(dst.b, tape);
@@ -4216,6 +4236,9 @@ test('parseTape rejects junk and non-tape files', () => {
   assert.throws(() => parseTape(new TextEncoder().encode('not json')), /invalid sync tape/);
   const kb = JSON.stringify({ app: 'local-kb', format: 1, documents: [] });
   assert.throws(() => parseTape(new TextEncoder().encode(kb)), /not a local-kb sync tape/);
+第 80 页 / 共 81 页
+
+零知识本地知识库软件 V1.0
 });
 // ===== 文件: tests/workspace.test.mjs  =====
 import { test } from 'node:test';
@@ -4236,9 +4259,6 @@ test('create workspace then unlock with correct password', async () => {
 });
 test('open fails with wrong password', async () => {
   const path = tempDbPath();
-第 80 页 / 共 81 页
-
-零知识本地知识库软件 V1.0
   const backend = new SQLiteBackend(path);
   await createKb(backend, 'right-password');
   const backend2 = new SQLiteBackend(path);
