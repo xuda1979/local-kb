@@ -2383,6 +2383,109 @@ console.log(out.join(" "));
         finally:
             _d11.quit()
 
+        # ---- 用户手册 4.2 (lines 214-215): "工作区密钥派生链：主密码─PBKDF2
+        # (310,000)→解锁密钥─HKDF→工作区密钥；工作区密钥永不以任何形式写盘".
+        # The mature 3.1/Q7 checks prove docs stay ciphertext and the key chain
+        # participates, but none proves the workspace key BYTES themselves are
+        # absent from every persistence surface. On an isolated fresh profile we
+        # create a real vault via the UI (so sessionStorage/localStorage are
+        # written exactly as the app writes them), derive the workspace key in
+        # the page exactly as src/workspace.js does, prove the derivation is
+        # genuinely the app's key by unwrapping a stored per-doc DEK with it
+        # (positive control), and assert its base64 form appears nowhere in
+        # IndexedDB, web storage, or the .kb export object.
+        _opts12 = Options()
+        _opts12.headless = True
+        _opts12.binary_location = fb
+        _opts12.set_preference("dom.indexedDB.enabled", True)
+        _d12 = webdriver.Firefox(options=_opts12)
+        try:
+            _d12.get(BASE + "/")
+            wait_for(_d12, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _d12.find_element(By.ID, "wsname").send_keys("cycle12-ws")
+            _d12.find_element(By.ID, "pw2").send_keys("cycle12 ws key pw")
+            _d12.find_element(By.ID, "pw2b").send_keys("cycle12 ws key pw")
+            _d12.find_element(By.ID, "btn-create").click()
+            wait_for(_d12, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+            wait_for(_d12, EC.visibility_of_element_located((By.ID, "btn-new")), 12)
+            _d12.find_element(By.ID, "btn-new").click()
+            time.sleep(0.8)
+            _d12.find_element(By.ID, "editor-title").clear()
+            _d12.find_element(By.ID, "editor-title").send_keys("cycle12 ws-key doc")
+            _d12.find_element(By.ID, "editor-area").clear()
+            _d12.find_element(By.ID, "editor-area").send_keys("body for the ws-key absence sweep")
+            _d12.find_element(By.ID, "btn-save").click()
+            time.sleep(1.2)
+            _ws12 = _d12.execute_async_script("""
+              const cb = arguments[arguments.length - 1];
+              (async () => {
+                const { IndexedDBBackend } = await import('/idb.js');
+                const { deriveKeyBytes, deriveWorkspaceKey, importAesGcm,
+                        decrypt, toBase64 } = await import('/src/crypto.js');
+                const { exportKB } = await import('/src/bak.js');
+                const db = new IndexedDBBackend('local-kb');
+                const params = await db.getParams();
+                const raw = new Uint8Array(
+                  await deriveKeyBytes('cycle12 ws key pw', params.salt, params.iterations));
+                const wsk = new Uint8Array(await deriveWorkspaceKey(raw, params.name));
+                // Positive control: the derived key must unwrap a stored per-doc
+                // DEK, proving it IS the app's real workspace key — so the
+                // absence checks below are meaningful, not a scan for a random
+                // string.
+                const ids = await db.listDocs();
+                const docs = [];
+                for (const r of ids) docs.push(await db.getDoc(r.id));
+                const h = await importAesGcm(wsk);
+                let sound = false;
+                for (const d of docs) {
+                  try { await decrypt(h, d.dekIv, d.dekData); sound = true; break; }
+                  catch (e) {}
+                }
+                const exportBlob = JSON.stringify(exportKB(params, docs));
+                return cb({
+                  b64: toBase64(wsk),
+                  sound,
+                  iters: params.iterations,
+                  wsName: params.name,
+                  docs: docs.length,
+                  exportBlob,
+                });
+              })().catch((e) => cb({ error: String(e) }));
+            """)
+            _wkr = json.loads(json.dumps(_ws12))
+            _wkb64 = _wkr.get("b64", "")
+            check("manual 4.2: derived workspace key is the app's real key " +
+                  "(unwraps a stored DEK, positive control)",
+                  _wkr.get("sound") is True and _wkr.get("docs", 0) >= 1 and
+                  _wkr.get("iters") == 310000 and _wkr.get("wsName") == "cycle12-ws",
+                  "sound=%s docs=%s iters=%s ws=%s" % (
+                      _wkr.get("sound"), _wkr.get("docs"),
+                      _wkr.get("iters"), _wkr.get("wsName")))
+            _dump12 = flatten_dump(get_db_dump(_d12))
+            check("manual 4.2: workspace key base64 absent from every IndexedDB record",
+                  bool(_wkb64) and _wkb64 not in _dump12,
+                  "b64len=%s dumpchars=%s" % (len(_wkb64), len(_dump12)))
+            _web12 = _d12.execute_script("""
+              const grab = (s) => {
+                const out = [];
+                for (let i = 0; i < s.length; i++) {
+                  const k = s.key(i);
+                  out.push(k + '=' + s.getItem(k));
+                }
+                return out.join('\\n');
+              };
+              return (sessionStorage.length ? grab(sessionStorage) + '\\n' : '') +
+                     (localStorage.length ? grab(localStorage) : '');
+            """)
+            check("manual 4.2: workspace key base64 absent from session/local storage",
+                  bool(_wkb64) and _wkb64 not in str(_web12),
+                  "webstorage=%r" % (str(_web12)[:120],))
+            check("manual 4.2: workspace key base64 absent from the exported .kb object",
+                  bool(_wkb64) and _wkb64 not in str(_wkr.get("exportBlob", "")),
+                  "exportchars=%s" % len(str(_wkr.get("exportBlob", ""))))
+        finally:
+            _d12.quit()
+
     finally:
         driver.quit()
 
