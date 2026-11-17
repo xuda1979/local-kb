@@ -2265,6 +2265,56 @@ console.log(out.join(" "));
               _r9.returncode == 0 and _o9 == "pre:absent post:ok loc:cwd unlock:ok docs:one hdr:sqlite",
               f"rc={_r9.returncode} out={_o9!r} err={(_r9.stderr or '')[:300]!r}")
 
+        # ---- 用户手册 5.1 故障 2: "解锁成功后文档列表为空" — the fix text
+        # directs the user to confirm they unlocked the correct workspace and
+        # notes that cleared browser site data needs a .kb backup restore.
+        # Pin the app's side of that contract on an isolated fresh profile
+        # (the "switched browser / cleared site data" premise): after a fresh
+        # vault is unlocked, an empty doc list must render the explicit
+        # empty-state guidance (renderDocList, main.js:68) rather than stale
+        # rows or a blank pane, the workspace name must stay visible so the
+        # right workspace is confirmable, and the .kb restore input must still
+        # be on the lock screen for the manual's recovery path.
+        _opts10 = Options()
+        _opts10.headless = True
+        _opts10.binary_location = fb
+        _opts10.set_preference("dom.indexedDB.enabled", True)
+        _d10 = webdriver.Firefox(options=_opts10)
+        try:
+            _d10.get(BASE + "/")
+            wait_for(_d10, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            try:
+                _d10.find_element(By.ID, "restore-file")
+                _has_restore = True
+            except Exception:
+                _has_restore = False
+            check("manual 5.1 故障 2: .kb restore input present on the lock screen (cleared-site-data recovery)",
+                  _has_restore, "restore-file input")
+            _d10.find_element(By.ID, "wsname").send_keys("cycle10-empty-ws")
+            _d10.find_element(By.ID, "pw2").send_keys("cycle10 empty vault pw")
+            _d10.find_element(By.ID, "pw2b").send_keys("cycle10 empty vault pw")
+            _d10.find_element(By.ID, "btn-create").click()
+            wait_for(_d10, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+            # lock, then unlock in a fresh page load so the empty state below
+            # is genuinely the post-unlock render, not the just-created DOM
+            _d10.find_element(By.ID, "btn-lock").click()
+            wait_for(_d10, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _d10.find_element(By.ID, "pw").send_keys("cycle10 empty vault pw")
+            _d10.find_element(By.ID, "btn-unlock").click()
+            wait_for(_d10, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+            time.sleep(1.2)
+            _rows10 = _d10.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            _list10 = _d10.find_element(By.ID, "doc-list").text
+            check("manual 5.1 故障 2: empty vault renders guidance, not stale rows or a blank list",
+                  len(_rows10) == 0 and "No documents yet" in _list10, _list10)
+            _label10 = _d10.find_element(By.ID, "ws-label").text
+            check("manual 5.1 故障 2: workspace name confirms the correct workspace",
+                  "cycle10-empty-ws" in _label10, _label10)
+            check("manual 5.1 故障 2: user can create the first doc from the empty list",
+                  _d10.find_element(By.ID, "btn-new").is_displayed(), True)
+        finally:
+            _d10.quit()
+
     finally:
         driver.quit()
 
