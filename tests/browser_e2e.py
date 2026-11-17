@@ -446,6 +446,16 @@ def main():
         check("table block escaped pipe stays one cell",
               "<td>Osaka | OSK</td>" in inner and "\\|" not in inner and "<td>Osaka \\</td>" not in inner,
               inner[:300])
+        # 用户手册 5.1 故障 7 also promises "表格不会被拆散成普通段落": the six
+        # pipe rows must render as exactly one <table>, with no cell content
+        # leaking out as <p> fragments (renderMarkdown would emit <p>| city |…
+        # only if a row fell through to the paragraph branch).
+        check("table stays one <table> block, not split into paragraphs (manual 5.1 故障 7)",
+              inner.count("<table>") == 1
+              and "<p>|" not in inner
+              and not any(c in re.sub(r"<table>.*?</table>", "", inner, flags=re.S)
+                          for c in ["city", "country", "Kyoto", "Japan", "Osaka | OSK"]),
+              f"tables={inner.count('<table>')} {inner[:300]}")
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.4)
         # reload the doc: blocks -> markdown must keep the pipe rows after the
