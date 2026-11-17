@@ -288,6 +288,53 @@ def main():
         snippet = driver.find_element(By.ID, "editor-area").get_attribute("value")
         check("edit persisted after reopen", KNOWN_EDIT in snippet)
 
+        # ---- Ctrl/Cmd+S shortcut persists (用户手册 3.3: "点击“保存”（或按
+        # Ctrl/Cmd + S）"). Drive the document-level keydown handler with a
+        # synthesized ctrl+s (the handler is a document keydown listener and
+        # does not inspect isTrusted), then prove the save really persisted by
+        # reloading and reopening — an AC1-strength proof for the shortcut.
+        area = driver.find_element(By.ID, "editor-area")
+        area.send_keys("\nCTRL-S-AUTOSAVE-PROOF-77")
+        time.sleep(0.3)
+        check("typing arms the unsaved-changes guard",
+              "edited" in driver.find_element(By.ID, "doc-meta").text.lower())
+        driver.execute_script(
+            "document.dispatchEvent(new KeyboardEvent('keydown', {key:'s', ctrlKey:true, bubbles:true}))"
+        )
+        time.sleep(1.2)
+        check("ctrl+s shows the saved receipt",
+              "Saved" in driver.find_element(By.ID, "log").text)
+        check("ctrl+s clears the dirty flag",
+              "edited" not in driver.find_element(By.ID, "doc-meta").text.lower())
+        driver.refresh()
+        wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
+        pw = driver.find_element(By.ID, "pw")
+        pw.send_keys("correct horse battery staple")
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+        driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")[0].click()
+        time.sleep(1.0)
+        snippet = driver.find_element(By.ID, "editor-area").get_attribute("value")
+        check("ctrl+s persisted through reload (AC1 proof for the shortcut)",
+              "CTRL-S-AUTOSAVE-PROOF-77" in snippet, snippet[-120:])
+
+        # ---- page-leave reminder mechanism (用户手册 3.3: "未保存的修改在……
+        # 离开页面时会收到提醒"). The new-doc/switch-doc prompts are covered
+        # above; this pins the browser-level guard: window.onbeforeunload must
+        # be armed exactly while the editor is dirty, and disarmed by a save.
+        check("clean editor does not arm the page-leave guard",
+              driver.execute_script("return window.onbeforeunload === null"))
+        area = driver.find_element(By.ID, "editor-area")
+        area.send_keys("\nBEFOREUNLOAD-DIRTY")
+        time.sleep(0.3)
+        check("dirty editor arms the page-leave guard",
+              driver.execute_script("return window.onbeforeunload !== null"))
+        driver.find_element(By.ID, "btn-save").click()
+        time.sleep(1.2)
+        check("save disarms the page-leave guard",
+              driver.execute_script("return window.onbeforeunload === null"))
+
         # ---- P1 editor: markdown preview toggle + XSS safety (real browser)
         # The current doc is open in the editor at this point.
         area = driver.find_element(By.ID, "editor-area")
