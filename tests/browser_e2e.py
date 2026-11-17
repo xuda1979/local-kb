@@ -447,17 +447,19 @@ def main():
         check("table escaped pipe round-trips from encrypted store",
               "Osaka \\| OSK" in snippet, snippet[-300:])
 
-        # ---- heading levels #..###### and ~~~ fences round-trip losslessly
-        # 用户手册 3.5: "标题的级别（## 至 ######）与嵌套引用（>>）同样无损
-        # 保留"; 编辑器支持 代码块（``` 或 ~~~)。 The table round-trip above
-        # proves verbatim persistence, but the marker lines only pin "##" and
-        # a backtick fence — so drive every heading level and the tilde fence
-        # through save -> encrypt -> decrypt -> reload back into the editor,
-        # then preview them from the store-derived plaintext.
+        # ---- heading levels #..######, nested quotes >/>>, ~~~ fences all
+        # round-trip losslessly — 用户手册 3.5: "标题的级别（## 至 ######）
+        # 与嵌套引用（>>）同样无损保留"; 编辑器支持 代码块（``` 或 ~~~)。
+        # The table round-trip above proves verbatim persistence, but its
+        # marker lines only pin "##" and a backtick fence — so drive every
+        # heading level, a nested blockquote pair, and the tilde fence through
+        # save -> encrypt -> decrypt -> reload back into the editor, then
+        # preview them all from the store-derived plaintext.
         area = driver.find_element(By.ID, "editor-area")
         area.send_keys(
             "\n# H1 level\n## H2 level\n### H3 level\n#### H4 level\n"
             "##### H5 level\n###### H6 level\n"
+            "> outer level\n>> inner level\n"
             "~~~\nprint('tilde fence')\n~~~"
         )
         driver.find_element(By.ID, "btn-save").click()
@@ -477,12 +479,17 @@ def main():
               snippet[-400:])
         check("tilde fence round-trips from encrypted store",
               "~~~\nprint('tilde fence')\n~~~" in snippet, snippet[-200:])
+        check("nested quote >> round-trips from encrypted store",
+              "> outer level\n>> inner level" in snippet, snippet[-300:])
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.6)
         inner = driver.find_element(By.ID, "preview").get_attribute("innerHTML")
         check("preview renders every heading level 1..6",
               all(f"<h{n}>H{n} level</h{n}>" in inner for n in range(1, 7)),
               inner[-400:])
+        check("preview renders the nested quotes as blockquotes",
+              "<blockquote>outer level</blockquote>" in inner
+              and "&gt; inner level" in inner, inner[-400:])
         check("preview renders the tilde fence as a code block",
               "~~~" not in inner and "tilde fence" in inner, inner[-400:])
         driver.find_element(By.ID, "btn-preview").click()
