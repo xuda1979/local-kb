@@ -447,6 +447,47 @@ def main():
         check("table escaped pipe round-trips from encrypted store",
               "Osaka \\| OSK" in snippet, snippet[-300:])
 
+        # ---- heading levels #..###### and ~~~ fences round-trip losslessly
+        # 用户手册 3.5: "标题的级别（## 至 ######）与嵌套引用（>>）同样无损
+        # 保留"; 编辑器支持 代码块（``` 或 ~~~)。 The table round-trip above
+        # proves verbatim persistence, but the marker lines only pin "##" and
+        # a backtick fence — so drive every heading level and the tilde fence
+        # through save -> encrypt -> decrypt -> reload back into the editor,
+        # then preview them from the store-derived plaintext.
+        area = driver.find_element(By.ID, "editor-area")
+        area.send_keys(
+            "\n# H1 level\n## H2 level\n### H3 level\n#### H4 level\n"
+            "##### H5 level\n###### H6 level\n"
+            "~~~\nprint('tilde fence')\n~~~"
+        )
+        driver.find_element(By.ID, "btn-save").click()
+        time.sleep(1.2)
+        driver.refresh()
+        wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
+        pw = driver.find_element(By.ID, "pw")
+        pw.send_keys("correct horse battery staple")
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+        driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")[0].click()
+        time.sleep(1.0)
+        snippet = driver.find_element(By.ID, "editor-area").get_attribute("value")
+        check("heading levels #..###### round-trip from encrypted store",
+              all(f"{'#'*n} H{n} level" in snippet for n in range(1, 7)),
+              snippet[-400:])
+        check("tilde fence round-trips from encrypted store",
+              "~~~\nprint('tilde fence')\n~~~" in snippet, snippet[-200:])
+        driver.find_element(By.ID, "btn-preview").click()
+        time.sleep(0.6)
+        inner = driver.find_element(By.ID, "preview").get_attribute("innerHTML")
+        check("preview renders every heading level 1..6",
+              all(f"<h{n}>H{n} level</h{n}>" in inner for n in range(1, 7)),
+              inner[-400:])
+        check("preview renders the tilde fence as a code block",
+              "~~~" not in inner and "tilde fence" in inner, inner[-400:])
+        driver.find_element(By.ID, "btn-preview").click()
+        time.sleep(0.4)
+
         # ---- AC2: IndexedDB holds no plaintext
         dump = flatten_dump(get_db_dump(driver))
         for needle in [KNOWN_TITLE, "oscar-7", "48.8584N", "deflector", "Project Snowstorm", "Kyoto", "Osaka"]:
