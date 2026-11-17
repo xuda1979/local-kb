@@ -1175,6 +1175,79 @@ def main():
               l.get("cReapplySkipped") is True,
               "reapply-applied-zero=%s" % (l.get("cReapplySkipped"),))
 
+        # ---- 用户手册 3.8 "删除以墓碑形式传播": a tombstone must ride a
+        # .kbsync tape to a fresh peer and there delete the doc, then keep that
+        # peer from ever resurrecting it via a stale live tape. Driven in-page on
+        # scratch peers (main vault untouched). Peer A holds the master doc and
+        # edits it so peer B's "decoy" tape carries the doc; A then deletes the
+        # doc via the encrypted store (tombstone recorded at the deleted
+        # updatedAt) and exports the post-delete tape, which must carry only a
+        # deleted:true entry with NO ciphertext / title.
+        tomb = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { openKb } = await import('/src/factory.js');
+            const { buildTape, applyTapeFile, serializeTape } = await import('/src/syncfile.js');
+            const PW = 'correct horse battery staple';
+            const main = new IndexedDBBackend();
+            const r = await openKb(main, PW);
+            if (!r.ok) return cb({ error: 'unlock' });
+            const docs = await r.store.list();
+            const docId = docs[0].id;
+            const mkPeer = async (name) => {
+              const p = new IndexedDBBackend(name);
+              await p.saveParams(r.params);
+              const pr = await openKb(p, PW);
+              return { p, pr };
+            };
+            const a = await mkPeer('local-kb-peer-tomb-a');
+            const seed = await applyTapeFile(a.p, await buildTape(r.params, main));
+            const doc = await a.pr.store.get(docId);
+            const title = (doc.title || '') + ' (Tomb)';
+            const blocks = (doc.blocks || []).concat({ type: 'paragraph', text: 'TOMBSTONE-PROP-PROOF-1cb9' });
+            // Store edit stamps a fresh updatedAt; guaranteed strictly newer than
+            // the seeded version because the PBKDF2 unlock took ~1s.
+            await a.pr.store.edit(docId, title, blocks);
+            const decoyTape = await buildTape(r.params, a.p);       // live doc, newer than seed
+            // Delete the doc on A: DocStore.delete leaves a tombstone at the
+            // deleted doc's updatedAt in the meta store.
+            await a.pr.store.delete(docId);
+            const delTape = await buildTape(r.params, a.p);          // tombstone only
+            const delEntry = (delTape.entries || []).find((e) => e.id === docId);
+            const delJson = new TextDecoder().decode(serializeTape(delTape));
+            // Peer B receives ONLY the post-delete tape -> tombstone carries the
+            // delete and the doc is absent, yet the tombstone is recorded.
+            const b = await mkPeer('local-kb-peer-tomb-b');
+            const rb = await applyTapeFile(b.p, delTape);
+            const bHas = await b.pr.store.list();
+            const bLive = bHas.find((d) => d.id === docId);
+            const bTombs = (await b.p.listTombstones()).filter((t) => t.id === docId);
+            // Stale live tape against the tombstone on B: skipped, doc stays gone.
+            const rc = await applyTapeFile(b.p, decoyTape);
+            const cLive = await b.pr.store.get(docId);
+            return cb({
+              docId,
+              delApplied: rb.applied,
+              bDocGone: !bLive && bTombs.length >= 1,
+              tombEncOnly: delEntry && delEntry.deleted === true
+                           && !('data' in delEntry) && !('iv' in delEntry)
+                           && !delJson.includes('TOMBSTONE-PROP-PROOF-1cb9'),
+              decoySkipped: rc.applied === 0 && !cLive,
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """)
+        t = json.loads(json.dumps(tomb))
+        check("sync: tombstone rides the tape to a fresh peer (manual 3.8)",
+              t.get("delApplied") == 1 and t.get("bDocGone") is True,
+              "applied=%s docGone=%s" % (t.get("delApplied"), t.get("bDocGone")))
+        check("sync: tape tombstone carries no ciphertext/plaintext (manual 3.8)",
+              t.get("tombEncOnly") is True,
+              "tombEncOnly=%s" % (t.get("tombEncOnly"),))
+        check("sync: stale live tape cannot resurrect the tombstoned doc (manual 3.8)",
+              t.get("decoySkipped") is True,
+              "decoySkipped=%s" % (t.get("decoySkipped"),))
+
         # ---- lock-screen .kb restore onto a fresh machine (用户手册 3.7,
         # 登记表 功能4, SPEC AC4): a brand-new browser profile has no vault to
         # unlock and no way to reach the in-app Import .kb (view-app only), so
