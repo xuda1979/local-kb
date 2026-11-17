@@ -1537,6 +1537,91 @@ def main():
         check("re-key: new password unlocks vault with docs intact",
               any(KNOWN_TITLE in d.text for d in docs), [d.text for d in docs])
 
+        # The UI block above proves the re-key *receipt*, but manual 4.2 / FAQ
+        # Q6 also promise the MECHANISM: "修改主密码后，全部 DEK 自动在新密钥下
+        # 重新封装…旧密码即刻失效" — every stored per-document DEK wrapper must
+        # be re-wrapped under the NEW workspace key and must no longer open with
+        # the OLD key. That is invisible from the UI, so prove it by
+        # cross-unwrapping the DEK blob before/after changeMasterPassword on a
+        # SELF-CONTAINED scratch vault (fresh salt, one doc, its own IndexedDB
+        # store 'local-kb-scratch-rekey'). The main vault is never touched and
+        # stays under NEW_PW for the rest of the run.
+        rekey_rot = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { createKb } = await import('/src/factory.js');
+            const { changeMasterPassword } = await import('/src/rekey.js');
+            const { unlockWorkspace } = await import('/src/workspace.js');
+            const { deriveKeyBytes, deriveWorkspaceKey, importAesGcm, decrypt, utf8d } =
+              await import('/src/crypto.js');
+            const { deserializeDoc } = await import('/src/docmodel.js');
+            const OLD_PW = 'rotation old pw 4711';
+            const NEW_PW = 'rotation new pw 9420';
+            const MARK = 'REKEY-ROTATION-PROOF-2d13';
+            const scratch = new IndexedDBBackend('local-kb-scratch-rekey');
+            const { store } = await createKb(scratch, OLD_PW, 'ops-vault');
+            await store.create('doc-rk', 'Rotation Test',
+                               [{ type: 'paragraph', text: 'before ' + MARK }]);
+            const params = await scratch.getParams();
+            const before = await scratch.getDoc('doc-rk');
+            const oldDek = { iv: before.dekIv, data: before.dekData };
+            // Soundness control: a key derived as the app derives it (same
+            // salt/iterations/name) must open the OLD wrapper — else the later
+            // "old key refuses the new wrapper" check would prove nothing.
+            const rawOld = new Uint8Array(
+              await deriveKeyBytes(OLD_PW, params.salt, params.iterations));
+            const oldWsk = new Uint8Array(await deriveWorkspaceKey(rawOld, params.name));
+            const oldH = await importAesGcm(oldWsk);
+            let oldOpensOld = false;
+            try { await decrypt(oldH, oldDek.iv, oldDek.data); oldOpensOld = true; } catch (e) {}
+            const rk = await changeMasterPassword(scratch, OLD_PW, NEW_PW);
+            const after = await scratch.getDoc('doc-rk');
+            const rawNew = new Uint8Array(
+              await deriveKeyBytes(NEW_PW, params.salt, params.iterations));
+            const newWsk = new Uint8Array(await deriveWorkspaceKey(rawNew, params.name));
+            const newH = await importAesGcm(newWsk);
+            // (a) the stored (new) wrapper opens with the NEW key, (b) the OLD
+            // key must now fail to unwrap it — "旧密码即刻失效" at the DEK level.
+            let newDek = null;
+            try { newDek = await decrypt(newH, after.dekIv, after.dekData); } catch (e) {}
+            let oldFailsOnNew = false;
+            try { await decrypt(oldH, after.dekIv, after.dekData); } catch (e) { oldFailsOnNew = true; }
+            // (c) the doc content still decrypts and is unchanged after re-wrap
+            let docGood = false;
+            if (newDek) {
+              const dekH = await importAesGcm(newDek);
+              try {
+                const d = deserializeDoc(utf8d.decode(await decrypt(dekH, after.iv, after.data)));
+                docGood = d.title === 'Rotation Test' &&
+                  (d.blocks || []).some((b) => (b.text || '').includes(MARK));
+              } catch (e) {}
+            }
+            // (d) the new password authenticates, the old password is refused
+            const newAuth = await unlockWorkspace(await scratch.getParams(), NEW_PW);
+            const oldAuth = await unlockWorkspace(await scratch.getParams(), OLD_PW);
+            return cb({
+              oldOpensOld, rkOk: !!(rk && rk.ok), rkWrapped: (rk && rk.rewrapped) || 0,
+              dekChanged: oldDek.iv !== after.dekIv || oldDek.data !== after.dekData,
+              newOpensNew: !!newDek, oldFailsOnNew, docGood,
+              newAuthOk: newAuth.ok === true, oldAuthDenied: oldAuth.ok === false,
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """)
+        rk2 = json.loads(json.dumps(rekey_rot))
+        check("re-key: DEK re-wrapped under the new workspace key (manual 4.2)",
+              rk2.get("oldOpensOld") is True and rk2.get("rkOk") is True and
+              rk2.get("rkWrapped") >= 1 and rk2.get("dekChanged") is True,
+              "wrapped=%s dek-changed=%s" % (rk2.get("rkWrapped"), rk2.get("dekChanged")))
+        check("re-key: new key unwraps the DEK, old key cannot (manual 4.2/Q6)",
+              rk2.get("newOpensNew") is True and rk2.get("oldFailsOnNew") is True,
+              "new-opens=%s old-fails=%s" % (rk2.get("newOpensNew"), rk2.get("oldFailsOnNew")))
+        check("re-key: doc content intact and unchanged after the rotation (manual 4.2/Q6)",
+              rk2.get("docGood") is True, "doc-good=%s" % (rk2.get("docGood"),))
+        check("re-key: new password authenticates, old password refused (manual 4.2/Q6)",
+              rk2.get("newAuthOk") is True and rk2.get("oldAuthDenied") is True,
+              "new-auth=%s old-denied=%s" % (rk2.get("newAuthOk"), rk2.get("oldAuthDenied")))
+
         # ---- Lock: drop the master password from the session and clear memory
         driver.find_element(By.ID, "btn-lock").click()
         wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
