@@ -2818,6 +2818,121 @@ console.log(out.join(" "));
             finally:
                 _srv16.kill()
 
+        # ---- 用户手册 4.2 (lines 214-215): "每个文档使用独立随机 DEK；DEK 由
+        # 工作区密钥 AES-256-GCM 封装后与文档密文一同保存". Cycle 12 proved the
+        # key chain and single-doc wrapped-DEK soundness; but NO existing check
+        # compares DEK material across two documents. Here we create a real vault
+        # on an isolated fresh profile, save TWO distinct docs through the UI,
+        # then derive the workspace key in-page (same idiom as Cycle 12),
+        # unwrap BOTH stored per-doc DEK wrappers, and assert: (a) both unwrap
+        # cleanly (soundness), (b) the two raw DEK byte strings DIFFER
+        # (independence — a fresh randomBytes(32) per create(), src/store.js),
+        # (c) each raw DEK decrypts its own doc's ciphertext to its own plaintext
+        # and FAILS to decrypt the other doc's ciphertext (each DEK governs only
+        # its own document).
+        _opts17 = Options()
+        _opts17.headless = True
+        _opts17.binary_location = fb
+        _opts17.set_preference("dom.indexedDB.enabled", True)
+        _d17 = webdriver.Firefox(options=_opts17)
+        try:
+            _d17.get(BASE + "/")
+            wait_for(_d17, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _d17.find_element(By.ID, "wsname").send_keys("cycle17-dek-ws")
+            _d17.find_element(By.ID, "pw2").send_keys("cycle17 per-doc dek pw")
+            _d17.find_element(By.ID, "pw2b").send_keys("cycle17 per-doc dek pw")
+            _d17.find_element(By.ID, "btn-create").click()
+            wait_for(_d17, EC.visibility_of_element_located((By.ID, "view-app")), 15)
+            wait_for(_d17, EC.visibility_of_element_located((By.ID, "btn-new")), 12)
+            _lbl17 = _d17.find_element(By.ID, "ws-label").text
+            check("manual 4.2: vault created for per-doc DEK independence probe",
+                  "cycle17-dek-ws" in _lbl17, _lbl17)
+
+            def _save_doc17(title, body):
+                _d17.find_element(By.ID, "btn-new").click()
+                time.sleep(0.8)
+                _t17 = _d17.find_element(By.ID, "editor-title")
+                _t17.clear()
+                _t17.send_keys(title)
+                _a17 = _d17.find_element(By.ID, "editor-area")
+                _a17.clear()
+                _a17.send_keys(body)
+                _d17.find_element(By.ID, "btn-save").click()
+                time.sleep(1.2)
+
+            _save_doc17("Doc Alpha",
+                        "alpha body text for the per-doc DEK independence check")
+            _save_doc17("Doc Beta",
+                        "beta body — must be encrypted under its own fresh DEK")
+            _rows17 = _d17.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            _rowtxt17 = [r.text for r in _rows17]
+            check("manual 4.2: both probe documents saved through the UI",
+                  any("Doc Alpha" in t for t in _rowtxt17) and
+                  any("Doc Beta" in t for t in _rowtxt17), _rowtxt17)
+
+            _dek17 = _d17.execute_async_script("""
+              const cb = arguments[arguments.length - 1];
+              (async () => {
+                const { IndexedDBBackend } = await import('/idb.js');
+                const { deriveKeyBytes, deriveWorkspaceKey, importAesGcm,
+                        decrypt, toBase64, fromBase64 } = await import('/src/crypto.js');
+                const db = new IndexedDBBackend('local-kb');
+                const params = await db.getParams();
+                const raw = new Uint8Array(
+                  await deriveKeyBytes('cycle17 per-doc dek pw', params.salt,
+                                       params.iterations));
+                const wsk = new Uint8Array(await deriveWorkspaceKey(raw, params.name));
+                const h = await importAesGcm(wsk);
+                const ids = await db.listDocs();
+                const recs = {};
+                for (const r of ids) {
+                  const d = await db.getDoc(r.id);
+                  const dekBytes = await decrypt(h, d.dekIv, d.dekData);
+                  const ptOwn = await decrypt(await importAesGcm(dekBytes),
+                                              d.iv, d.data);
+                  recs[d.id] = { dek: toBase64(dekBytes), iv: d.iv, data: d.data,
+                                 plain: new TextDecoder().decode(ptOwn) };
+                }
+                const keys = Object.keys(recs).sort();
+                const [idA, idB] = keys;
+                // Cross-decrypt: doc B's ciphertext must FAIL under doc A's DEK
+                // (GCM auth tag rejects the wrong key) — proving each DEK governs
+                // only its own document.
+                let cross = null;
+                try {
+                  const hA = await importAesGcm(fromBase64(recs[idA].dek));
+                  await decrypt(hA, recs[idB].iv, recs[idB].data);
+                  cross = 'wrong-key-decrypted';
+                } catch (e) { cross = 'rejected'; }
+                return cb({ idA, idB, dekA: recs[idA].dek, dekB: recs[idB].dek,
+                            plainA: recs[idA].plain, plainB: recs[idB].plain,
+                            cross });
+              })().catch((e) => cb({ error: String(e) }));
+            """)
+            _dk17 = json.loads(json.dumps(_dek17))
+            check("manual 4.2: both stored per-doc DEKs unwrap cleanly with the " +
+                  "workspace key (soundness)",
+                  not _dk17.get("error") and _dk17.get("dekA") and _dk17.get("dekB"),
+                  str(_dk17)[:200])
+            check("manual 4.2: the two documents carry DIFFERENT random DEK bytes",
+                  bool(_dk17.get("dekA")) and _dk17.get("dekA") != _dk17.get("dekB"),
+                  "A=%s... B=%s..." % (str(_dk17.get("dekA"))[:24],
+                                       str(_dk17.get("dekB"))[:24]))
+            check("manual 4.2: each DEK decrypts its own document's ciphertext to " +
+                  "its own plaintext",
+                  bool(_dk17.get("plainA")) and bool(_dk17.get("plainB")) and
+                  "Doc Alpha" in _dk17.get("plainA", "") and
+                  "alpha body" in _dk17.get("plainA", "") and
+                  "Doc Beta" in _dk17.get("plainB", "") and
+                  "beta body" in _dk17.get("plainB", ""),
+                  "plainA=%.60r plainB=%.60r" % (_dk17.get("plainA"),
+                                                 _dk17.get("plainB")))
+            check("manual 4.2: a doc's ciphertext rejects decryption under the " +
+                  "other document's DEK (GCM tag mismatch)",
+                  _dk17.get("cross") == "rejected", str(_dk17.get("cross")) or "no error")
+        finally:
+            _d17.quit()
+
     finally:
         driver.quit()
 
