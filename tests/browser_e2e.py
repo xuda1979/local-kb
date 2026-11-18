@@ -420,8 +420,8 @@ def main():
         area.send_keys(
             '\n## MD Preview Check\n**bold** `code` *italic* __emph__ [bad](javascript:alert(1))\n<script>alert(1)</script>'
             '\n```\nconst x = 1;\n```\n'
-            '\n- alpha\n- beta\n'
-            '\n1. first\n2. second\n'
+            '\n- alpha\n- beta\n* star\n+ plus\n'
+            '\n1. first\n2. second\n1) one\n2) two\n'
             '\n> quote\n>> nested\n'
             '\n[data](data:image/png;base64,AAAA)'
             '\n[ok](https://example.com/path)'
@@ -450,10 +450,19 @@ def main():
         check("preview rejects javascript: links", "<em>bad</em>" in inner and "javascript:" not in inner)
         check("preview renders fenced code block",
               "<pre><code>const x = 1;</code></pre>" in inner, inner[:200])
-        check("preview renders unordered list",
-              "<ul><li>alpha</li><li>beta</li></ul>" in inner)
-        check("preview renders ordered list",
-              "<ol><li>first</li><li>second</li></ol>" in inner)
+        # 用户手册 3.5 / 设计说明书 3.8: 无序/有序列表. markdown.js:178-179
+        # accept the full marker character classes [-*+] (ul) and \d+[.)] (ol),
+        # but the existing input pinned only the `-` and `.` legs — dropping
+        # `*`, `+`, or `)` from the regexes would leave every current check
+        # green. So `*`/`+` bullets and `)` ordered markers must render into
+        # the same single <ul>/<ol> block (contiguous markers after the
+        # existing - / 1. items), with no stray <p> wrapper around them.
+        check("preview renders unordered list markers - * + (manual 3.5)",
+              "<ul><li>alpha</li><li>beta</li><li>star</li><li>plus</li></ul>" in inner
+              and "* star" not in inner, inner[:300])
+        check("preview renders ordered list markers . ) (manual 3.5)",
+              "<ol><li>first</li><li>second</li><li>one</li><li>two</li></ol>" in inner
+              and "1) one" not in inner, inner[:300])
         check("preview renders quote with nested depth",
               "<blockquote>quote</blockquote>" in inner
               and "<blockquote>&gt; nested</blockquote>" in inner, inner[:300])
