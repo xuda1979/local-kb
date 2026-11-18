@@ -597,8 +597,9 @@ def main():
         check("preview renders the nested quotes as blockquotes",
               "<blockquote>outer level</blockquote>" in inner
               and "&gt; inner level" in inner, inner[-400:])
-        check("preview renders the tilde fence as a code block",
-              "~~~" not in inner and "tilde fence" in inner, inner[-400:])
+        check("preview renders the tilde fence as a code block (manual 3.5)",
+              "<pre><code>print('tilde fence')</code></pre>" in inner
+              and "~~~" not in inner, inner[-400:])
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.4)
 
