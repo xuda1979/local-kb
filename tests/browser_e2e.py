@@ -3750,6 +3750,75 @@ console.log(out.join(" "));
         finally:
             _shutil23.rmtree(_rdir23, ignore_errors=True)
 
+        # ---- 用户手册 4.3 (存储位置): "浏览器模式：数据保存在浏览器
+        # IndexedDB 中（数据库名如 local-kb）" (用户手册.txt:220). Every earlier
+        # IndexedDB check opens the database via the hardcoded string 'local-kb'
+        # inside get_db_dump(), so none ever proves that the browser actually
+        # REGISTERS a database under that documented name — indexedDB.databases()
+        # is unused anywhere in the suite. The app reaches IndexedDB only inside
+        # unlock()/createVault() (public/main.js:424/441), so a freshly loaded
+        # page must register zero databases (non-vacuous), and once a vault + a
+        # saved doc exist through the real UI, exactly one database — named
+        # 'local-kb' — must be registered, carry the documented
+        # workspace/docs/meta object stores, and hold only ciphertext.
+        _opts25 = Options()
+        _opts25.headless = True
+        _opts25.binary_location = fb
+        _opts25.set_preference("dom.indexedDB.enabled", True)
+        _d25 = webdriver.Firefox(options=_opts25)
+
+        def _dbs25():
+            return _d25.execute_async_script("""
+            const cb = arguments[arguments.length - 1];
+            indexedDB.databases().then((dbs) => cb(dbs), () => cb([]));
+            """)
+
+        try:
+            _d25.get(BASE + "/")
+            wait_for(_d25, EC.visibility_of_element_located(
+                (By.ID, "view-unlock")), 12)
+            _dbg25 = _dbs25()
+            check("manual 4.3: fresh origin registers no IndexedDB database "
+                  "before a vault exists (non-vacuous)",
+                  isinstance(_dbg25, list) and len(_dbg25) == 0, _dbg25)
+            _d25.find_element(By.ID, "wsname").send_keys("cycle25-dbname-ws")
+            _d25.find_element(By.ID, "pw2").send_keys("cycle25 dbname pw 2026")
+            _d25.find_element(By.ID, "pw2b").send_keys("cycle25 dbname pw 2026")
+            _d25.find_element(By.ID, "btn-create").click()
+            wait_for(_d25, EC.visibility_of_element_located(
+                (By.ID, "view-app")), 12)
+            wait_for(_d25, EC.visibility_of_element_located(
+                (By.ID, "btn-new")), 12)
+            _d25.find_element(By.ID, "btn-new").click()
+            time.sleep(1.0)
+            _t25 = _d25.find_element(By.ID, "editor-title")
+            _t25.clear()
+            _t25.send_keys("CYCLE25-DOC")
+            _bd25 = _d25.find_element(By.ID, "editor-area")
+            _bd25.clear()
+            _bd25.send_keys("cycle25 ember payload lynx-7")
+            _d25.find_element(By.ID, "btn-save").click()
+            time.sleep(1.5)
+            _dbn25 = [_b.get("name") for _b in _dbs25()]
+            check("manual 4.3: the browser registers exactly one IndexedDB "
+                  "database named 'local-kb' for the vault (数据库名如 "
+                  "local-kb)",
+                  len(_dbn25) == 1 and _dbn25[0] == "local-kb", _dbn25)
+            _dump25 = get_db_dump(_d25)
+            _stores25 = (sorted(_dump25.keys())
+                         if isinstance(_dump25, dict) else [])
+            check("manual 4.3: the local-kb database carries the "
+                  "workspace/docs/meta object stores",
+                  "workspace" in _stores25 and "docs" in _stores25
+                  and "meta" in _stores25, _stores25)
+            _flat25 = flatten_dump(_dump25)
+            check("manual 4.3: the local-kb database persists only ciphertext "
+                  "(AC2 on the documented storage location)",
+                  all(s not in _flat25 for s in ["lynx-7", "CYCLE25-DOC"]),
+                  _flat25[:200])
+        finally:
+            _d25.quit()
+
     finally:
         driver.quit()
 
