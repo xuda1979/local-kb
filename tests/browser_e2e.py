@@ -363,6 +363,39 @@ def main():
         check("ctrl+s persisted through reload (AC1 proof for the shortcut)",
               "CTRL-S-AUTOSAVE-PROOF-77" in snippet, snippet[-120:])
 
+        # ---- Cmd+S (macOS Meta) half of the SAME documented shortcut.
+        # 用户手册 3.3 says "点击“保存”（或按 Ctrl/Cmd + S）": the handler in
+        # public/main.js:531 accepts (e.ctrlKey || e.metaKey) && key==='s', but
+        # every check above synthesizes ctrlKey only. Pin the Cmd/metaKey branch
+        # end-to-end: an unsaved edit is saved by a synthesized meta+s, the dirty
+        # flag clears, and the stored body grows — the AC1-strength persistence
+        # proof for the documented macOS modifier.
+        area = driver.find_element(By.ID, "editor-area")
+        area.send_keys("\nCMDS-METAKEY-PROOF-91")
+        time.sleep(0.3)
+        check("cmd+s (metaKey) arms the unsaved-changes guard before dispatch",
+              "edited" in driver.find_element(By.ID, "doc-meta").text.lower())
+        driver.execute_script(
+            "document.dispatchEvent(new KeyboardEvent('keydown', {key:'s', metaKey:true, bubbles:true}))"
+        )
+        time.sleep(1.2)
+        check("cmd+s (metaKey) shows the saved receipt (manual 3.3 Ctrl/Cmd + S)",
+              "Saved" in driver.find_element(By.ID, "log").text)
+        check("cmd+s (metaKey) clears the dirty flag",
+              "edited" not in driver.find_element(By.ID, "doc-meta").text.lower())
+        driver.refresh()
+        wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
+        pw = driver.find_element(By.ID, "pw")
+        pw.send_keys("correct horse battery staple")
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+        driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")[0].click()
+        time.sleep(1.0)
+        snippet = driver.find_element(By.ID, "editor-area").get_attribute("value")
+        check("cmd+s (metaKey) persisted through reload (AC1 proof for the shortcut)",
+              "CMDS-METAKEY-PROOF-91" in snippet, snippet[-120:])
+
         # ---- page-leave reminder mechanism (用户手册 3.3: "未保存的修改在……
         # 离开页面时会收到提醒"). The new-doc/switch-doc prompts are covered
         # above; this pins the browser-level guard: window.onbeforeunload must
