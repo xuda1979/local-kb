@@ -3629,6 +3629,127 @@ console.log(out.join(" "));
         finally:
             _d22.quit()
 
+        # ---- 用户手册 3.3 (文档持久化): "保存即在本机完成端到端加密并写
+        # 入本地存储；关闭页面、重启浏览器后再次解锁即可看到全部文档"
+        # (用户手册.txt:123-124). Every earlier persistence check only calls
+        # `refresh()` — the SAME browser process. This block is the first TRUE
+        # process-boundary proof: a scratch Firefox profile lives under $HOME
+        # (snap confinement rejects `-profile` dirs on /tmp, which is why the
+        # all-but-unused `fresh_profile()` helper above would never work), a
+        # vault + two docs are written through the UI, the driver fully QUITS,
+        # and a brand-new Firefox process launched on the SAME `-profile` dir
+        # must unlock the vault with both docs listed again. IndexedDB web
+        # files are also asserted on disk after quit, and AC2 (no plaintext in
+        # IndexedDB) is re-verified on the true-restart path.
+        import shutil as _shutil23
+        import glob as _glob23
+        import tempfile as _tempfile23
+
+        _rdir23 = _tempfile23.mkdtemp(prefix="ffkb-cycle24-",
+                                      dir=os.path.expanduser("~"))
+        with open(os.path.join(_rdir23, "prefs.js"), "w") as _f23:
+            _f23.write("# Mozilla User Preferences\n\n")
+
+        def _mk23():
+            _o = Options()
+            _o.headless = True
+            _o.binary_location = fb
+            _o.add_argument("-profile")
+            _o.add_argument(_rdir23)
+            _d = webdriver.Firefox(options=_o)
+            _d.set_page_load_timeout(20)
+            return _d
+
+        _PW23 = "cycle24 restart pw 2026"
+        try:
+            _a23 = _mk23()
+            try:
+                _a23.get(BASE + "/")
+                wait_for(_a23, EC.visibility_of_element_located(
+                    (By.ID, "view-unlock")), 12)
+                _a23.find_element(By.ID, "wsname").send_keys("cycle24-restart-ws")
+                _a23.find_element(By.ID, "pw2").send_keys(_PW23)
+                _a23.find_element(By.ID, "pw2b").send_keys(_PW23)
+                _a23.find_element(By.ID, "btn-create").click()
+                wait_for(_a23, EC.visibility_of_element_located(
+                    (By.ID, "view-app")), 12)
+                wait_for(_a23, EC.visibility_of_element_located(
+                    (By.ID, "btn-new")), 12)
+                check("restart persist: fresh restart-profile vault unlocked "
+                      "(non-vacuous)",
+                      _a23.find_element(By.ID, "view-app").is_displayed(), True)
+                for _ti23, _bo23 in [("CYCLE24-DOC-A", "cycle24 alpha payload "
+                                      "raven-9"), ("CYCLE24-DOC-B",
+                                                   "cycle24 beta payload fox-3")]:
+                    _a23.find_element(By.ID, "btn-new").click()
+                    time.sleep(1.0)
+                    _t23 = _a23.find_element(By.ID, "editor-title")
+                    _t23.clear()
+                    _t23.send_keys(_ti23)
+                    _bd23 = _a23.find_element(By.ID, "editor-area")
+                    _bd23.clear()
+                    _bd23.send_keys(_bo23)
+                    _a23.find_element(By.ID, "btn-save").click()
+                    time.sleep(1.2)
+                check("restart persist: two docs saved before the process "
+                      "boundary (manual 3.3)",
+                      len(_a23.find_elements(By.CSS_SELECTOR,
+                                             "#doc-list .doc-row")) == 2, True)
+            finally:
+                _a23.quit()
+
+            # The write must exist as IndexedDB web files in the reused
+            # profile directory, not merely in the live page's memory.
+            _stor23 = os.path.join(_rdir23, "storage", "default")
+            _idb23 = bool(_glob23.glob(os.path.join(_stor23, "**", "*"),
+                                       recursive=True))
+            check("restart persist: IndexedDB web files persisted to the "
+                  "profile dir after quit (manual 3.3)",
+                  _idb23, _stor23)
+
+            # TRUE restart: a brand-new Firefox process on the SAME profile dir.
+            _b23 = _mk23()
+            try:
+                _b23.get(BASE + "/")
+                wait_for(_b23, EC.visibility_of_element_located(
+                    (By.ID, "view-unlock")), 12)
+                check("restart persist: post-relaunch page shows only the "
+                      "unlock view (manual 3.3)",
+                      _b23.find_element(By.ID, "view-unlock").is_displayed(),
+                      True)
+                _b23.find_element(By.ID, "pw").send_keys(_PW23)
+                _b23.find_element(By.ID, "btn-unlock").click()
+                wait_for(_b23, EC.visibility_of_element_located(
+                    (By.ID, "view-app")), 12)
+                check("restart persist: vault re-unlocks with the original "
+                      "password after the process boundary (manual 3.3)",
+                      _b23.find_element(By.ID, "view-app").is_displayed(), True)
+                _rows23 = _b23.find_elements(
+                    By.CSS_SELECTOR, "#doc-list .doc-row")
+                _txts23 = [r.text for r in _rows23]
+                check("restart persist: ALL docs visible again after closing "
+                      "the page and restarting the browser (manual 3.3)",
+                      len(_rows23) == 2
+                      and any("CYCLE24-DOC-A" in t for t in _txts23)
+                      and any("CYCLE24-DOC-B" in t for t in _txts23),
+                      _txts23)
+                check("restart persist: workspace name survived the restart "
+                      "too (manual 3.3)",
+                      "cycle24-restart-ws"
+                      in _b23.find_element(By.ID, "ws-label").text,
+                      _b23.find_element(By.ID, "ws-label").text)
+                _flat23 = flatten_dump(get_db_dump(_b23))
+                check("restart persist: IndexedDB still holds only ciphertext "
+                      "on the true-restart path (AC2)",
+                      all(s not in _flat23 for s in ["raven-9", "fox-3",
+                                                     "CYCLE24-DOC-A"]),
+                      _flat23[:200])
+            finally:
+                _b23.quit()
+            _shutil23.rmtree(_rdir23, ignore_errors=True)
+        finally:
+            _shutil23.rmtree(_rdir23, ignore_errors=True)
+
     finally:
         driver.quit()
 
