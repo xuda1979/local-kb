@@ -3525,6 +3525,77 @@ console.log(out.join(" "));
         finally:
             _d21.quit()
 
+        # ---- 用户手册 4.1 (config table): "主密码 … ≥ 8 字符，建议 ≥ 12 字符"
+        # applied to the 3.9 修改主密码 (re-key) flow. The create-path floor is
+        # already pinned (line 186); public/main.js:316 enforces the SAME floor
+        # on the re-key path (`if (next.length < 8) return log('New password
+        # must be at least 8 characters.', true);`), but no existing check ever
+        # drives a too-short NEW password through the re-key card. This block,
+        # on its own self-contained scratch profile (Cycle 13/21 idiom), creates
+        # a vault, attempts a re-key whose new password is exactly one character
+        # under the floor, and asserts: the UI refuses it (exact gate message,
+        # no "changed" receipt), the app stays unlocked, and the OLD password
+        # still unlocks — i.e. no rotation happened. A control then re-keys with
+        # an 8+-char password and must succeed, proving the refusal was
+        # length-specific, not a broken flow.
+        _opts22 = Options()
+        _opts22.headless = True
+        _opts22.binary_location = fb
+        _opts22.set_preference("dom.indexedDB.enabled", True)
+        _d22 = webdriver.Firefox(options=_opts22)
+        try:
+            _d22.get(BASE + "/")
+            wait_for(_d22, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _OLD22 = "cycle22 old pw 2026"
+            _d22.find_element(By.ID, "wsname").send_keys("cycle22-rekey-floor")
+            _d22.find_element(By.ID, "pw2").send_keys(_OLD22)
+            _d22.find_element(By.ID, "pw2b").send_keys(_OLD22)
+            _d22.find_element(By.ID, "btn-create").click()
+            wait_for(_d22, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+            wait_for(_d22, EC.presence_of_element_located((By.ID, "rekey-current")), 12)
+            check("re-key floor: fresh scratch vault unlocked with re-key card "
+                  "(non-vacuous)",
+                  _d22.find_element(By.ID, "view-app").is_displayed(), True)
+
+            _d22.find_element(By.ID, "rekey-current").send_keys(_OLD22)
+            _d22.find_element(By.ID, "rekey-new").send_keys("short12")  # 7 chars
+            _d22.find_element(By.ID, "rekey-confirm").send_keys("short12")
+            _d22.find_element(By.ID, "btn-rekey").click()
+            time.sleep(1.0)
+            _log22 = _d22.find_element(By.ID, "log").text
+            check("re-key floor: 7-character new password refused with the ≥8 gate "
+                  "message (manual 4.1/3.9)",
+                  "at least 8" in _log22 and "Master password changed" not in _log22,
+                  _log22)
+            check("re-key floor: rejected re-key leaves the app unlocked",
+                  _d22.find_element(By.ID, "view-app").is_displayed(), True)
+
+            # No rotation happened: the OLD password must still unlock after a
+            # reload. (A botched gate could silently rotate the key, which a
+            # UI-layer refusal would otherwise mask.)
+            _d22.refresh()
+            wait_for(_d22, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _d22.find_element(By.ID, "pw").send_keys(_OLD22)
+            _d22.find_element(By.ID, "btn-unlock").click()
+            wait_for(_d22, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+            check("re-key floor: old password still unlocks after the refusal "
+                  "(key not rotated)",
+                  _d22.find_element(By.ID, "view-app").is_displayed(), True)
+
+            # Control: an 8+-char new password must pass the SAME card, proving
+            # the refusal above was length-specific.
+            _d22.find_element(By.ID, "rekey-current").send_keys(_OLD22)
+            _d22.find_element(By.ID, "rekey-new").send_keys("cycle22 new pw 9191")
+            _d22.find_element(By.ID, "rekey-confirm").send_keys("cycle22 new pw 9191")
+            _d22.find_element(By.ID, "btn-rekey").click()
+            time.sleep(2.0)
+            _log22 = _d22.find_element(By.ID, "log").text
+            check("re-key floor: control — 8+-char new password re-keys cleanly "
+                  "(manual 4.1/3.9)",
+                  "Master password changed" in _log22, _log22)
+        finally:
+            _d22.quit()
+
     finally:
         driver.quit()
 
