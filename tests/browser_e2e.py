@@ -425,6 +425,9 @@ def main():
             '\n> quote\n>> nested\n'
             '\n[data](data:image/png;base64,AAAA)'
             '\n[ok](https://example.com/path)'
+            '\n[mail](mailto:a@b.com)'
+            '\n[anchor](#sec)'
+            '\n[rel](/rel/path)'
             '\nplain paragraph text'
             '\n---'
             '\n___'
@@ -470,13 +473,22 @@ def main():
               "<em>data</em>" in inner and "data:image/png" not in inner, inner[:300])
         # Manual 3.5 预览 promises "自动屏蔽 javascript:、data: 等危险链接"
         # — the negatives above (js/data degrade to <em>) are pinned, but nothing
-        # pins the positive side: a SAFE_URL allowlist regression that killed
-        # *every* link (e.g. SAFE_URL inverted or dropped) would leave all the
-        # above checks green. So a safe https: link must render as a real
+        # pins the allowlist positive: a SAFE_URL (markdown.js:23) regression
+        # that killed *every* link (e.g. SAFE_URL inverted or dropped) would
+        # leave all the above checks green. So each allowlist leg — https:,
+        # mailto:, fragment #, and bare / relative — must render as a real
         # anchor with label + href, never degrade to <em>.
         check("preview keeps safe https: links as real anchors (manual 3.5)",
               "<a href=\"https://example.com/path\">ok</a>" in inner
               and "<em>ok</em>" not in inner, inner[:300])
+        # The SAFE_URL allowlist above also takes mailto:, #-fragment, and
+        # bare-/ relative targets — the same class of pin as the https: leg:
+        # dropping any of these legs (a "simplified" SAFE_URL like /^https?:/)
+        # would leave every existing anchor check green.
+        check("preview renders mailto/fragment/relative links as anchors (设计说明书 3.8)",
+              "<a href=\"mailto:a@b.com\">mail</a>" in inner
+              and "<a href=\"#sec\">anchor</a>" in inner
+              and "<a href=\"/rel/path\">rel</a>" in inner, inner[:300])
         # Manual 3.5 编辑器支持 lists 段落 (paragraph) among the supported
         # constructs. The script tag above proves an escaped <p> is emitted
         # (line 434), but nothing pins the element itself: a wrapper regression
@@ -1017,7 +1029,15 @@ def main():
           document.getElementById('btn-export').click();
           return true;
         """)
-        name = driver.execute_script("return window.__captured")
+        name = None
+        # exportKBFile is async (public/main.js:215): it awaits listDocs()
+        # before creating and clicking the download anchor, so the capture
+        # lands on a later JS turn. Poll up to 5s instead of reading once.
+        for _ in range(50):
+            name = driver.execute_script("return window.__captured")
+            if name:
+                break
+            time.sleep(0.1)
         after = datetime.now(timezone.utc).replace(microsecond=0)
         time.sleep(0.5)
         stamp_re = r"^local-kb-backup-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.kb$"
@@ -1167,7 +1187,16 @@ def main():
           document.getElementById('btn-sync-out').click();
           return true;
         """)
-        sync_name = driver.execute_script("return window.__captured")
+        # syncOutFile is async (public/main.js:264): it awaits buildTape()
+        # before creating and clicking the download anchor, so the capture
+        # lands on a later JS turn. Poll up to 5s for it instead of reading
+        # once, or this check races the handler (flaky "captured None").
+        sync_name = None
+        for _ in range(50):
+            sync_name = driver.execute_script("return window.__captured")
+            if sync_name:
+                break
+            time.sleep(0.1)
         sync_after = datetime.now(timezone.utc).replace(microsecond=0)
         time.sleep(0.5)
         sync_stamp_re = r"^local-kb-sync-\d{4}-\d{2}-\d{2}-\d{2}-\d{2}-\d{2}\.kbsync$"
