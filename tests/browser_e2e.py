@@ -549,6 +549,45 @@ def main():
               "~~~\nprint('tilde fence')\n~~~" in snippet, snippet[-200:])
         check("nested quote >> round-trips from encrypted store",
               "> outer level\n>> inner level" in snippet, snippet[-300:])
+        # 用户手册 3.5 lists 无序/有序列表 among the editor-supported
+        # constructs ("编辑器支持：… 无序/有序列表 …"). Preview checks above
+        # already render list markers, but no check ever drove a list through
+        # save -> encrypt -> decrypt -> reload: list marker lines fall into
+        # plain paragraph blocks in textToBlocks (src/factory.js) and re-emit
+        # verbatim through blocksToMarkdown, so `- item` / `1. item` must
+        # survive the encrypted store byte-for-byte like tables/fences/quotes.
+        area = driver.find_element(By.ID, "editor-area")
+        area.send_keys(
+            "\n- first bullet\n- second bullet\n"
+            "1. one\n2. two\n3. three"
+        )
+        driver.find_element(By.ID, "btn-save").click()
+        time.sleep(1.2)
+        driver.refresh()
+        wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
+        pw = driver.find_element(By.ID, "pw")
+        pw.send_keys("correct horse battery staple")
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+        driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")[0].click()
+        time.sleep(1.0)
+        snippet = driver.find_element(By.ID, "editor-area").get_attribute("value")
+        check("unordered list markers round-trip from encrypted store (manual 3.5)",
+              "- first bullet" in snippet and "- second bullet" in snippet,
+              snippet[-300:])
+        check("ordered list markers round-trip from encrypted store (manual 3.5)",
+              "1. one" in snippet and "2. two" in snippet and "3. three" in snippet,
+              snippet[-300:])
+        driver.find_element(By.ID, "btn-preview").click()
+        time.sleep(0.6)
+        inner = driver.find_element(By.ID, "preview").get_attribute("innerHTML")
+        check("preview renders the round-tripped lists as <ul>/<ol> (manual 3.5)",
+              "<ul><li>first bullet</li><li>second bullet</li></ul>" in inner
+              and "<ol><li>one</li><li>two</li><li>three</li></ol>" in inner,
+              inner[-300:])
+        driver.find_element(By.ID, "btn-preview").click()
+        time.sleep(0.4)
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.6)
         inner = driver.find_element(By.ID, "preview").get_attribute("innerHTML")
