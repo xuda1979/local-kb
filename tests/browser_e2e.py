@@ -420,6 +420,7 @@ def main():
         area.send_keys(
             '\n## MD Preview Check\n**bold** `code` *italic* __emph__ [bad](javascript:alert(1))\n<script>alert(1)</script>'
             '\n```\nconst x = 1;\n```\n'
+            '\n```js\nconst y = 2;\n```\n'
             '\n- alpha\n- beta\n* star\n+ plus\n'
             '\n1. first\n2. second\n1) one\n2) two\n'
             '\n> quote\n>> nested\n'
@@ -454,6 +455,15 @@ def main():
         check("preview rejects javascript: links", "<em>bad</em>" in inner and "javascript:" not in inner)
         check("preview renders fenced code block",
               "<pre><code>const x = 1;</code></pre>" in inner, inner[:200])
+        # 用户手册 3.5 / 设计说明书 3.8: fenced code. markdown.js:153-163 emit
+        # `<pre class="lang-X">` only when the fence carries a language tag —
+        # an untagged regression (dropping fence[2] or the class emission) would
+        # leave every fence check green, since the blocks above use untagged
+        # ``` and ~~~ fences. So a js-tagged fence must render the lang class
+        # while the untagged fence stays class-less.
+        check("preview renders js-tagged fence with lang class (设计说明书 3.8)",
+              '<pre class="lang-js"><code>const y = 2;</code></pre>' in inner
+              and '<pre class=""><code>' not in inner, inner[:200])
         # 用户手册 3.5 / 设计说明书 3.8: 无序/有序列表. markdown.js:178-179
         # accept the full marker character classes [-*+] (ul) and \d+[.)] (ol),
         # but the existing input pinned only the `-` and `.` legs — dropping
