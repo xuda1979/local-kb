@@ -3278,6 +3278,186 @@ console.log(out.join(" "));
         finally:
             _d19.quit()
 
+        # ---- 用户手册 3.8 step 5 / Q5: "双方互相交换一次后，两台机器的文档
+        # 集合与各文档最新版本一致" and "分别在两台机器'同步引出/同步引入'
+        # .kbsync 文件各一次，即可双向收敛（含删除语义）". Every existing sync
+        # block is ONE-way (A edits -> B receives; A deletes -> B receives);
+        # none proves the FULL symmetric exchange where BOTH machines diverge
+        # independently and reconverge. This block drives that end-to-end on
+        # scratch IndexedDB peers of one shared seed workspace (main vault
+        # untouched): both machines pull the identical seed tape; A edits doc1
+        # and adds doc3, B (after a beat, so its edit is strictly newer) edits
+        # doc1 differently, deletes doc2 and adds doc4; then A->B tape, then
+        # B->A tape. After ONE mutual exchange both must hold the SAME doc set
+        # (doc2 expelled on both, doc3/doc4 arrived on both) and per-doc the
+        # SAME latest version — byte-identical ciphertext, LWW winner on both.
+        # The main driver was last pointed at the torn-down ephemeral stdlib
+        # server of the manual 2.1/Q2 block, so /idb.js + /src/* would resolve
+        # against a dead origin here. Hop back to the live demo origin first;
+        # the app reloads to the lock screen, which nothing below depends on.
+        driver.get(BASE + "/")
+        _mut20 = json.loads(json.dumps(driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { createKb, openKb } = await import('/src/factory.js');
+            const { buildTape, applyTapeFile } = await import('/src/syncfile.js');
+            const { uuid } = await import('/src/util.js');
+            const PW = 'correct horse battery staple';
+            const snooze = (ms) => new Promise((r) => setTimeout(r, ms));
+            const textOf = (d) => (d.blocks || []).map((x) => x.text).join(' ');
+            const snap = async (peer, id) => {
+              const e = await peer.p.getDoc(id);
+              const d = await peer.pr.store.get(id);
+              return d ? {
+                title: d.title,
+                blocksText: textOf(d),
+                updatedAt: d.updatedAt,
+                iv: e ? e.iv : null, data: e ? e.data : null,
+                dekIv: e ? e.dekIv : null, dekData: e ? e.dekData : null,
+              } : null;
+            };
+            // One shared seed workspace: two docs, exported once, so both
+            // machines start byte-identical from the same tape.
+            const seed = new IndexedDBBackend('local-kb-c20-seed');
+            const sr = await createKb(seed, PW, 'mutual-ws');
+            const doc1 = await sr.store.create(uuid(), 'Doc One',
+                        [{ type: 'paragraph', text: 'MUTUAL-SEED-ONE-c03d' }]);
+            const doc2 = await sr.store.create(uuid(), 'Doc Two',
+                        [{ type: 'paragraph', text: 'MUTUAL-SEED-TWO-5b91' }]);
+            const seedParams = await seed.getParams();
+            const seedTape = await buildTape(seedParams, seed);
+            const mkPeer = async (name) => {
+              const p = new IndexedDBBackend(name);
+              await p.saveParams(seedParams);
+              const pr = await openKb(p, PW);
+              return { p, pr };
+            };
+            const a = await mkPeer('local-kb-c20-a');
+            const b = await mkPeer('local-kb-c20-b');
+            if (!a.pr.ok || !b.pr.ok) return cb({ error: 'peer-unlock' });
+            await applyTapeFile(a.p, seedTape);
+            await applyTapeFile(b.p, seedTape);
+            const aInit = (await a.pr.store.list()).map((d) => d.id).sort();
+            const bInit = (await b.pr.store.list()).map((d) => d.id).sort();
+            // ---- Diverge (each machine edits independently).
+            const d1a = await a.pr.store.get(doc1.id);
+            await a.pr.store.edit(doc1.id, (d1a.title || '') + ' (A)',
+                (d1a.blocks || []).concat({ type: 'paragraph', text: 'MUTUAL-A-EDIT-84f2' }));
+            const doc3 = await a.pr.store.create(uuid(), 'Doc Three',
+                        [{ type: 'paragraph', text: 'MUTUAL-NEW-A-99ad' }]);
+            await snooze(200); // B's edit must be strictly NEWER than A's
+            const d1b0 = await b.pr.store.get(doc1.id);
+            await b.pr.store.edit(doc1.id, (d1b0.title || '') + ' (B)',
+                (d1b0.blocks || []).concat({ type: 'paragraph', text: 'MUTUAL-B-EDIT-17ae' }));
+            await b.pr.store.delete(doc2.id);
+            const doc4 = await b.pr.store.create(uuid(), 'Doc Four',
+                        [{ type: 'paragraph', text: 'MUTUAL-NEW-B-2c77' }]);
+            const aPre = new Set((await a.pr.store.list()).map((d) => d.id));
+            const bPre = new Set((await b.pr.store.list()).map((d) => d.id));
+            const d1aP = await a.pr.store.get(doc1.id);
+            const d1bP = await b.pr.store.get(doc1.id);
+            const diverge = aPre.has(doc3.id) && bPre.has(doc4.id)
+                            && !bPre.has(doc2.id)
+                            && textOf(d1aP).includes('MUTUAL-A-EDIT-84f2')
+                            && textOf(d1bP).includes('MUTUAL-B-EDIT-17ae');
+            const divDoc1 = JSON.stringify({ title: d1aP.title, blocks: d1aP.blocks })
+                            !== JSON.stringify({ title: d1bP.title, blocks: d1bP.blocks });
+            // ---- One mutual exchange: A out -> B in, then B out -> A in.
+            await applyTapeFile(b.p, await buildTape(seedParams, a.p));
+            await applyTapeFile(a.p, await buildTape(seedParams, b.p));
+            // ---- Convergence on both machines.
+            const finalAIds = (await a.pr.store.list()).map((d) => d.id).sort();
+            const finalBIds = (await b.pr.store.list()).map((d) => d.id).sort();
+            const setsConverge =
+              JSON.stringify(finalAIds) === JSON.stringify(finalBIds)
+              && finalAIds.includes(doc3.id) && finalAIds.includes(doc4.id)
+              && !finalAIds.includes(doc2.id);
+            const d2A = await snap(a, doc2.id);
+            const d2B = await snap(b, doc2.id);
+            const tombsA = (await a.p.listTombstones()).filter((t) => t.id === doc2.id).length;
+            const tombsB = (await b.p.listTombstones()).filter((t) => t.id === doc2.id).length;
+            const tA2 = (await buildTape(seedParams, a.p)).entries.find((e) => e.id === doc2.id);
+            const tB2 = (await buildTape(seedParams, b.p)).entries.find((e) => e.id === doc2.id);
+            const deleteConverged = d2A === null && d2B === null
+                                    && tombsA >= 1 && tombsB >= 1
+                                    && tA2 && tA2.deleted === true
+                                    && tB2 && tB2.deleted === true;
+            const d1A = await snap(a, doc1.id);
+            const d1B = await snap(b, doc1.id);
+            const d3A = await snap(a, doc3.id);
+            const d3B = await snap(b, doc3.id);
+            const d4A = await snap(a, doc4.id);
+            const d4B = await snap(b, doc4.id);
+            const blocksTextA = d1A.blocksText || '';
+            const blocksTextB = d1B.blocksText || '';
+            const sameCipher = d1A && d1B && d1A.iv === d1B.iv
+                               && d1A.data === d1B.data
+                               && d1A.dekIv === d1B.dekIv
+                               && d1A.dekData === d1B.dekData;
+            const sameTs = d1A && d1B && d1A.updatedAt === d1B.updatedAt;
+            // B's edit is the newer of the two competing versions (60ms snooze
+            // + PBKDF2 unlocks), so LWW must land on the B version on BOTH
+            // machines — and the superseded A edit is dropped consistently.
+            const lwwWinner = !!(d1A && d1B)
+                              && sameCipher && sameTs
+                              && (d1B.title || '').includes(' (B)')
+                              && (d1A.title || '').includes(' (B)')
+                              && blocksTextB.includes('MUTUAL-B-EDIT-17ae')
+                              && blocksTextA.includes('MUTUAL-B-EDIT-17ae')
+                              && !blocksTextA.includes('MUTUAL-A-EDIT-84f2')
+                              && !blocksTextB.includes('MUTUAL-A-EDIT-84f2');
+            // A's new doc3 and B's new doc4 both arrive on both machines with
+            // byte-identical ciphertext (the receiving side stores the tape
+            // entry's exact blobs, so both converge to identical bytes).
+            const doc3Converged = !!(d3A && d3B)
+                                  && d3A.iv === d3B.iv && d3A.data === d3B.data
+                                  && d3A.dekIv === d3B.dekIv && d3A.dekData === d3B.dekData
+                                  && d3A.title === d3B.title;
+            const doc4Converged = !!(d4A && d4B)
+                                  && d4A.iv === d4B.iv && d4A.data === d4B.data
+                                  && d4A.dekIv === d4B.dekIv && d4A.dekData === d4B.dekData
+                                  && d4A.title === d4B.title;
+            return cb({
+              error: null,
+              initialSame: JSON.stringify(aInit) === JSON.stringify(bInit),
+              diverge, divDoc1,
+              divOrder: d1bP.updatedAt > d1aP.updatedAt,
+              setsConverge,
+              doc3Converged, doc4Converged,
+              deleteConverged,
+              lwwWinner,
+              finalAIds, finalBIds,
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """), default=str))
+        _m = _mut20 if isinstance(_mut20, dict) else {}
+        check("sync: mutual exchange ends with IDENTICAL doc sets on both machines — "
+              "A's doc3 and B's doc4 both across, B's deleted doc2 absent on both "
+              "(manual 3.8 step 5 / Q5)",
+              _m.get("diverge") is True and _m.get("divDoc1") is True
+              and _m.get("initialSame") is True and _m.get("setsConverge") is True,
+              "initial-same=%s diverge=%s sets-converge=%s idsA=%s idsB=%s"
+              % (_m.get("initialSame"), _m.get("diverge"), _m.get("setsConverge"),
+                 _m.get("finalAIds"), _m.get("finalBIds")))
+        check("sync: delete convergence — doc2 absent on both machines, tombstoned "
+              "on both, both current tapes carry deleted:true (manual 3.8 step 5 / Q5)",
+              _m.get("deleteConverged") is True,
+              "deleteConverged=%s" % (_m.get("deleteConverged"),))
+        check("sync: LWW lands on B's strictly-newer doc1 version on BOTH machines — "
+              "byte-identical ciphertext + updatedAt, A's superseded edit dropped "
+              "consistently (manual 3.8 step 5 / Q5)",
+              _m.get("lwwWinner") is True and _m.get("divOrder") is True,
+              "b-newer=%s lww-winner=%s" % (_m.get("divOrder"), _m.get("lwwWinner")))
+        check("sync: each machine's own new doc crosses to the other in ciphertext "
+              "and both hold byte-identical copies (manual 3.8 step 5 / Q5)",
+              _m.get("doc3Converged") is True and _m.get("doc4Converged") is True,
+              "doc3-converged=%s doc4-converged=%s" % (_m.get("doc3Converged"),
+                                                        _m.get("doc4Converged")))
+        if _m.get("error"):
+            check("sync: mutual-exchange run completed without error (manual 3.8/Q5)",
+                  False, "in-page error: %s" % (_m.get("error"),))
+
     finally:
         driver.quit()
 
