@@ -452,6 +452,38 @@ def main():
               and "<code>code</code>" in inner
               and "<em>italic</em>" in inner, inner[:300])
         check("preview escapes raw HTML inert", "<script>alert" not in inner and "&lt;script&gt;" in inner)
+        # 设计说明书 3.8: escapeHtml (markdown.js:12-19) escapes all five HTML
+        # metacharacters. The & < > legs are pinned by the raw-HTML check above;
+        # the quote legs " -> &quot; and ' -> &#39; are NOT observable through
+        # innerHTML — browsers re-serialize text-node quotes as literal " / ',
+        # so a DOM-level assert on &quot;/&#39; cannot pass even with a correct
+        # renderer (a mis-premise that failed the first attempt of this check).
+        # Instead the production renderer is imported in-page exactly as the
+        # app does (./main.js -> ./markdown.js) and asked to render quoting
+        # input: the returned raw string must carry &quot; and &#39; and no
+        # raw "hi" / 'bye'. Dropping either quote .replace (a "simplified"
+        # escapeHtml) fails this check.
+        quotes_json = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            try {
+              const { renderMarkdown } = await import('/markdown.js');
+              const out = renderMarkdown(`he said "hi" and 'bye'`);
+              cb(JSON.stringify({
+                doubleOk: out.includes('&quot;hi&quot;'),
+                singleOk: out.includes('&#39;bye&#39;'),
+                rawDoubleAbsent: !out.includes('"hi"'),
+                rawSingleAbsent: !out.includes(`'bye'`),
+                sample: out.slice(0, 120),
+              }));
+            } catch (e) { cb(JSON.stringify({ error: String(e) })); }
+          })();
+        """)
+        quotes = json.loads(quotes_json) if quotes_json else {}
+        check("preview escapes HTML quote chars (设计说明书 3.8)",
+              quotes.get("doubleOk") is True and quotes.get("singleOk") is True
+              and quotes.get("rawDoubleAbsent") is True
+              and quotes.get("rawSingleAbsent") is True, quotes)
         check("preview rejects javascript: links", "<em>bad</em>" in inner and "javascript:" not in inner)
         check("preview renders fenced code block",
               "<pre><code>const x = 1;</code></pre>" in inner, inner[:200])
