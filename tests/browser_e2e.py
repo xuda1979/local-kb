@@ -3458,6 +3458,73 @@ console.log(out.join(" "));
             check("sync: mutual-exchange run completed without error (manual 3.8/Q5)",
                   False, "in-page error: %s" % (_m.get("error"),))
 
+        # ---- 用户手册 3.2: "页面在指定时间内没有操作（移动鼠标、按键、滚动等）
+        # 会自动锁定" — the activity-POSTPONE half. The earlier idle block pinned
+        # the lock *firing* after a quiet 3 s window plus auto-save; it never
+        # proved that real user activity postpones the timer. This block, on a
+        # self-contained scratch profile (Cycle 13's separate-driver idiom),
+        # creates a vault, then shrinks the idle window to 2.5 s and feeds each
+        # of the manual's named activity kinds ("移动鼠标、按键、滚动等" — plus
+        # press and touch; public/main.js:538 arms the timer on
+        # mousemove/mousedown/keydown/scroll/touchstart) at a cadence that keeps
+        # re-arming the timer. Each kind gets its own slot: dispatch, 1.3 s,
+        # dispatch again (before the 2.5 s deadline), 1.3 s — a full idle
+        # window elapses without the lock firing, which is exactly the postpone
+        # guarantee. A final no-activity control shows the lock still fires on
+        # its own once the user goes quiet.
+        _opts21 = Options()
+        _opts21.headless = True
+        _opts21.binary_location = fb
+        _opts21.set_preference("dom.indexedDB.enabled", True)
+        _d21 = webdriver.Firefox(options=_opts21)
+        try:
+            _d21.get(BASE + "/")
+            wait_for(_d21, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _d21.find_element(By.ID, "wsname").send_keys("cycle21-idle-ws")
+            _d21.find_element(By.ID, "pw2").send_keys("cycle21 idle pw")
+            _d21.find_element(By.ID, "pw2b").send_keys("cycle21 idle pw")
+            _d21.find_element(By.ID, "btn-create").click()
+            wait_for(_d21, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+            wait_for(_d21, EC.visibility_of_element_located((By.ID, "btn-new")), 12)
+            check("idle postpone: fresh scratch vault unlocked (non-vacuous)",
+                  _d21.find_element(By.ID, "btn-lock").is_displayed(), True)
+            _d21.execute_script("window.LOCAL_KB_IDLE_MS = 2500;")
+
+            def _poke21(evt):
+                _d21.execute_script(
+                    "document.dispatchEvent(new Event(arguments[0], { bubbles: true }));",
+                    evt)
+
+            for _evt in ["mousemove", "mousedown", "keydown", "scroll", "touchstart"]:
+                _poke21(_evt)
+                time.sleep(1.3)
+                _poke21(_evt)  # re-arm before the 2.5 s deadline
+                time.sleep(1.3)
+                check("idle postpone: %s activity keeps the app unlocked across a "
+                      "full idle window (manual 3.2)" % _evt,
+                      _d21.find_element(By.ID, "view-app").is_displayed(), True)
+            # Five kinds × one full 2.5 s window each: the app is still unlocked,
+            # i.e. activity re-armed the timer for the whole run (~5 windows).
+            check("idle postpone: several consecutive idle windows elapse without a "
+                  "lock while activity continues (manual 3.2)",
+                  _d21.find_element(By.ID, "view-app").is_displayed(), True)
+
+            # Control: stop every form of activity; the armed timer now fires on
+            # its own (the firing half already pinned above, re-observed here so
+            # the postpone proof cannot be vacuous).
+            time.sleep(4.0)
+            wait_for(_d21, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            check("idle postpone: with no activity the lock still fires (manual 3.2)",
+                  True, True)
+            pw_held = _d21.execute_script("return sessionStorage.getItem('local-kb-pw');")
+            check("idle postpone: post-lock session password is dropped (manual 3.2)",
+                  pw_held is None or pw_held == "", str(pw_held))
+            check("idle postpone: inactivity lock text appears in the log (manual 3.2)",
+                  "auto-locked" in _d21.find_element(By.ID, "log").text.lower(),
+                  _d21.find_element(By.ID, "log").text)
+        finally:
+            _d21.quit()
+
     finally:
         driver.quit()
 
