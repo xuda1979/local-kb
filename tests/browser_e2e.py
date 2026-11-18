@@ -425,6 +425,7 @@ def main():
             '\n> quote\n>> nested\n'
             '\n[data](data:image/png;base64,AAAA)'
             '\n[ok](https://example.com/path)'
+            '\nplain paragraph text'
         )
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.6)
@@ -454,6 +455,14 @@ def main():
         check("preview keeps safe https: links as real anchors (manual 3.5)",
               "<a href=\"https://example.com/path\">ok</a>" in inner
               and "<em>ok</em>" not in inner, inner[:300])
+        # Manual 3.5 编辑器支持 lists 段落 (paragraph) among the supported
+        # constructs. The script tag above proves an escaped <p> is emitted
+        # (line 434), but nothing pins the element itself: a wrapper regression
+        # from <p> to another block element (or losing the wrapper) would pass
+        # every current check. So a distinctive bare text line must render as
+        # exactly one <p>.</p>.
+        check("preview renders plain paragraph as <p> (manual 3.5)",
+              "<p>plain paragraph text</p>" in inner, inner[:300])
         check("preview toggle button flips to Edit", driver.find_element(By.ID, "btn-preview").text == "Edit")
         driver.find_element(By.ID, "btn-preview").click()  # back to editor
         time.sleep(0.4)
