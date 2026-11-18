@@ -584,9 +584,28 @@ def main():
               and not any(c in re.sub(r"<table>.*?</table>", "", inner, flags=re.S)
                           for c in ["city", "country", "Kyoto", "Japan", "Osaka | OSK"]),
               f"tables={inner.count('<table>')} {inner[:300]}")
+        # 设计说明书 3.8: markdown.js:194's `isTableRow` second alternative
+        # `/[^\\]?\|/` makes rows WITHOUT a leading pipe a table too
+        # (e.g. `a | b`), and the line-206 separator regex must consume the
+        # bare `---|---` separator exactly like `| --- |` — dropping the
+        # leading-pipe option (`^\s*\|?`) or narrowing isTableRow would leak
+        # `a | b` / `---` into <p> fragments with today's checks still green.
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.4)
-        # reload the doc: blocks -> markdown must keep the pipe rows after the
+        area = driver.find_element(By.ID, "editor-area")
+        area.send_keys("\n\na | b\n---|---\n1 | 2")
+        driver.find_element(By.ID, "btn-save").click()
+        time.sleep(1.2)
+        driver.find_element(By.ID, "btn-preview").click()
+        time.sleep(0.6)
+        inner = driver.find_element(By.ID, "preview").get_attribute("innerHTML")
+        check("preview renders bare-pipe table a | b (设计说明书 3.8)",
+              "<th>a</th>" in inner and "<th>b</th>" in inner
+              and "<td>1</td>" in inner and "<td>2</td>" in inner
+              and "---" not in inner
+              and "<p>a | b</p>" not in inner,
+              inner[:300])
+        driver.find_element(By.ID, "btn-preview").click()
         # save/encrypt/decrypt round-trip through the store.
         driver.refresh()
         wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
