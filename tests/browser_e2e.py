@@ -550,8 +550,10 @@ def main():
         # ---- table blocks: pipe rows round-trip editor -> encrypted store
         area = driver.find_element(By.ID, "editor-area")
         # Row 4 uses an escaped pipe inside a cell (用户手册 5.1 故障 7):
-        # `\|` must stay in-cell and round-trip the encrypted store.
-        area.send_keys("\n\n| city | country |\n| --- | --- |\n| Kyoto | Japan |\n| Osaka \\| OSK | Japan |")
+        # `\|` must stay in-cell and round-trip the encrypted store. The header
+        # separator uses alignment colons (| :-- | --: |) — markdown.js:206
+        # must consume that line as a separator, never render it as a row.
+        area.send_keys("\n\n| city | country |\n| :-- | --: |\n| Kyoto | Japan |\n| Osaka \\| OSK | Japan |")
         driver.find_element(By.ID, "btn-save").click()
         time.sleep(1.2)
         driver.find_element(By.ID, "btn-preview").click()
@@ -563,6 +565,14 @@ def main():
               inner[:200])
         check("table block escaped pipe stays one cell",
               "<td>Osaka | OSK</td>" in inner and "\\|" not in inner and "<td>Osaka \\</td>" not in inner,
+              inner[:300])
+        # 设计说明书 3.8: the markdown.js:206 separator regex must also consume
+        # alignment-colon separators (| :-- | --: |). If colons were dropped
+        # from that regex the separator line would fall through to the table
+        # body and leak `:--` / `--:` into a rendered <td> row.
+        check("table alignment-colon separator consumed as header row (设计说明书 3.8)",
+              "<th>city</th>" in inner and "<td>Kyoto</td>" in inner
+              and ":--" not in inner and "--:" not in inner,
               inner[:300])
         # 用户手册 5.1 故障 7 also promises "表格不会被拆散成普通段落": the six
         # pipe rows must render as exactly one <table>, with no cell content
