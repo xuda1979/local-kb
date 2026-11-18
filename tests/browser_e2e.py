@@ -424,6 +424,7 @@ def main():
             '\n1. first\n2. second\n'
             '\n> quote\n>> nested\n'
             '\n[data](data:image/png;base64,AAAA)'
+            '\n[ok](https://example.com/path)'
         )
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.6)
@@ -444,6 +445,15 @@ def main():
               and "<blockquote>&gt; nested</blockquote>" in inner, inner[:300])
         check("preview masks data: links as inert text",
               "<em>data</em>" in inner and "data:image/png" not in inner, inner[:300])
+        # Manual 3.5 预览 promises "自动屏蔽 javascript:、data: 等危险链接"
+        # — the negatives above (js/data degrade to <em>) are pinned, but nothing
+        # pins the positive side: a SAFE_URL allowlist regression that killed
+        # *every* link (e.g. SAFE_URL inverted or dropped) would leave all the
+        # above checks green. So a safe https: link must render as a real
+        # anchor with label + href, never degrade to <em>.
+        check("preview keeps safe https: links as real anchors (manual 3.5)",
+              "<a href=\"https://example.com/path\">ok</a>" in inner
+              and "<em>ok</em>" not in inner, inner[:300])
         check("preview toggle button flips to Edit", driver.find_element(By.ID, "btn-preview").text == "Edit")
         driver.find_element(By.ID, "btn-preview").click()  # back to editor
         time.sleep(0.4)
