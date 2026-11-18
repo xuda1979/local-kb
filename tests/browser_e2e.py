@@ -426,6 +426,7 @@ def main():
             '\n[data](data:image/png;base64,AAAA)'
             '\n[ok](https://example.com/path)'
             '\nplain paragraph text'
+            '\n---'
         )
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.6)
@@ -472,6 +473,16 @@ def main():
         # exactly one <p>.</p>.
         check("preview renders plain paragraph as <p> (manual 3.5)",
               "<p>plain paragraph text</p>" in inner, inner[:300])
+        # 设计说明书 3.8: renderMarkdown 渲染 "标题、水平线、围栏代码块、块引用、
+        # 无序/有序列表、管道表格". Every other named block is pinned above
+        # (heading/paragraph/quote/fence/ul/ol/table), but the horizontal rule
+        # (markdown.js:144-150) has no browser pin — a regression that let `---`
+        # fall through to the paragraph branch would pass every existing check.
+        # So a lone `---` line must render as exactly one <hr>, with no <p>
+        # wrapper around it.
+        check("preview renders horizontal rule as <hr> (设计说明书 3.8)",
+              inner.count("<hr>") == 1 and "<p>---</p>" not in inner,
+              f"hrs={inner.count('<hr>')} {inner[:300]}")
         check("preview toggle button flips to Edit", driver.find_element(By.ID, "btn-preview").text == "Edit")
         driver.find_element(By.ID, "btn-preview").click()  # back to editor
         time.sleep(0.4)
