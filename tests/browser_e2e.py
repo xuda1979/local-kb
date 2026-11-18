@@ -418,7 +418,7 @@ def main():
         # 用户手册 3.5: preview 支持 fenced code (``` / ~~~)、无序与有序列表、
         # 引用（含嵌套层级 ">>"），并自动屏蔽 javascript:、data: 等危险链接。
         area.send_keys(
-            '\n## MD Preview Check\n**bold** `code` [bad](javascript:alert(1))\n<script>alert(1)</script>'
+            '\n## MD Preview Check\n**bold** `code` *italic* [bad](javascript:alert(1))\n<script>alert(1)</script>'
             '\n```\nconst x = 1;\n```\n'
             '\n- alpha\n- beta\n'
             '\n1. first\n2. second\n'
@@ -432,7 +432,16 @@ def main():
         prev = driver.find_element(By.ID, "preview")
         inner = prev.get_attribute("innerHTML")
         check("preview renders markdown headings", "<h2>MD Preview Check</h2>" in inner, inner[:200])
-        check("preview renders inline formatting", "<strong>bold</strong>" in inner)
+        # Manual 3.5 编辑器支持 the inline spans the editor produces. Only
+        # <strong> is pinned positively below — <code> has no strict inline
+        # pin (the fenced-block check pins the distinct <pre><code> path) and
+        # both existing <em> asserts come from the *link-degradation* branch
+        # (markdown.js:44), never the italic regex markdown.js:38. A regression
+        # in the backtick or *italic* span regex would pass every check.
+        check("preview renders inline formatting",
+              "<strong>bold</strong>" in inner
+              and "<code>code</code>" in inner
+              and "<em>italic</em>" in inner)
         check("preview escapes raw HTML inert", "<script>alert" not in inner and "&lt;script&gt;" in inner)
         check("preview rejects javascript: links", "<em>bad</em>" in inner and "javascript:" not in inner)
         check("preview renders fenced code block",
