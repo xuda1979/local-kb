@@ -594,9 +594,9 @@ def main():
         check("preview renders every heading level 1..6",
               all(f"<h{n}>H{n} level</h{n}>" in inner for n in range(1, 7)),
               inner[-400:])
-        check("preview renders the nested quotes as blockquotes",
+        check("preview renders the nested quotes as blockquotes (manual 3.5)",
               "<blockquote>outer level</blockquote>" in inner
-              and "&gt; inner level" in inner, inner[-400:])
+              and "<blockquote>&gt; inner level</blockquote>" in inner, inner[-400:])
         check("preview renders the tilde fence as a code block (manual 3.5)",
               "<pre><code>print('tilde fence')</code></pre>" in inner
               and "~~~" not in inner, inner[-400:])
