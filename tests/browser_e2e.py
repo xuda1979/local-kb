@@ -29,6 +29,13 @@ from selenium.webdriver.support import expected_conditions as EC
 
 BASE = os.environ.get("KB_BASE", "http://127.0.0.1:4242")
 
+# Resolve the local geckodriver deterministically: Selenium Manager would
+# otherwise dial github.com / plausible.io on every driver launch, which fails
+# on offline CI (tls handshake eof) and stalls driver creation. With the
+# offline marker set, selenium falls back to the PATH-resolved geckodriver
+# with no network calls.
+os.environ.setdefault("SE_MANAGER_OFFLINE", "1")
+
 
 def find_firefox_binary():
     """Locate a Firefox executable usable by geckodriver/selenium.
@@ -2893,8 +2900,15 @@ console.log(out.join(" "));
                   recs[d.id] = { dek: toBase64(dekBytes), iv: d.iv, data: d.data,
                                  plain: new TextDecoder().decode(ptOwn) };
                 }
-                const keys = Object.keys(recs).sort();
-                const [idA, idB] = keys;
+                // Doc IDs are random, so sorted order is NOT creation order.
+                // Identify each probe document by its own decrypted plaintext
+                // (content-addressed) so the per-doc DEK mapping is robust.
+                const all = Object.keys(recs).sort();
+                let idA = null, idB = null;
+                for (const k of all) {
+                  if (recs[k].plain.includes('Doc Alpha')) idA = k;
+                  else if (recs[k].plain.includes('Doc Beta')) idB = k;
+                }
                 // Cross-decrypt: doc B's ciphertext must FAIL under doc A's DEK
                 // (GCM auth tag rejects the wrong key) — proving each DEK governs
                 // only its own document.
@@ -2932,6 +2946,152 @@ console.log(out.join(" "));
                   _dk17.get("cross") == "rejected", str(_dk17.get("cross")) or "no error")
         finally:
             _d17.quit()
+
+        # ---- 用户手册 5.3 Q3: "软件需要联网才能使用吗？A：不需要。创建、
+        # 编辑、检索、备份、修改主密码全部离线可用；同步采用离线文件
+        # (.kbsync) 或自建渠道传递。" The AC6 check above only greps the served
+        # HTML for URL strings; nothing yet pins the RUNTIME behavior — that the
+        # five documented capabilities complete without a single fetch/XHR/
+        # sendBeacon call and that every resource the page ever loaded comes from
+        # the app's own origin (never a CDN/telemetry host). This block arms
+        # in-page observers on a fresh profile, walks all five capabilities in
+        # order, then audits (a) the live API-call trace and (b) the page's full
+        # performance resource list. IndexedDB/WebCrypto local work counts as
+        # offline; any real HTTP(S) API call would fail the trace.
+        _opts18 = Options()
+        _opts18.headless = True
+        _opts18.binary_location = fb
+        _opts18.set_preference("dom.indexedDB.enabled", True)
+        _d18 = webdriver.Firefox(options=_opts18)
+        try:
+            _d18.get(BASE + "/")
+            wait_for(_d18, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _d18.execute_script("""
+              // Arm the wire observers BEFORE the first capability action. Every
+              // fetch/XMLHttpRequest/sendBeacon from now on is recorded verbatim;
+              // original behavior is preserved so the app is unaffected.
+              window.__wireTrace = [];
+              const rec = (t, u) => window.__wireTrace.push({ t: t, u: String(u).slice(0, 500) });
+              const _fetch = window.fetch;
+              window.fetch = function (...a) {
+                rec('fetch', a[0] && a[0].url ? a[0].url : a[0]);
+                return _fetch.apply(this, a);
+              };
+              const _open = XMLHttpRequest.prototype.open;
+              const _send = XMLHttpRequest.prototype.send;
+              XMLHttpRequest.prototype.open = function (m, u, ...r) {
+                this.__u = u; return _open.call(this, m, u, ...r);
+              };
+              XMLHttpRequest.prototype.send = function (...a) {
+                if (this.__u) rec('xhr', this.__u);
+                return _send.apply(this, a);
+              };
+              if (navigator.sendBeacon) {
+                const _beacon = navigator.sendBeacon.bind(navigator);
+                navigator.sendBeacon = function (u, ...a) {
+                  rec('beacon', u); return _beacon(u, ...a);
+                };
+              }
+              return true;
+            """)
+            check("manual 5.3/Q3: wire observer armed on the fresh page (non-vacuous)",
+                  _d18.execute_script("return Array.isArray(window.__wireTrace)"),
+                  "observer list missing")
+
+            # 1) 创建 — fresh vault entirely through the UI (like Cycle 17).
+            _d18.find_element(By.ID, "wsname").send_keys("cycle18-offline-ws")
+            _d18.find_element(By.ID, "pw2").send_keys("cycle18 offline pw")
+            _d18.find_element(By.ID, "pw2b").send_keys("cycle18 offline pw")
+            _d18.find_element(By.ID, "btn-create").click()
+            wait_for(_d18, EC.visibility_of_element_located((By.ID, "view-app")), 15)
+            wait_for(_d18, EC.visibility_of_element_located((By.ID, "btn-new")), 12)
+            _lbl18 = _d18.find_element(By.ID, "ws-label").text
+            check("manual 5.3/Q3: create capability succeeds offline (workspace unlocked)",
+                  "cycle18-offline-ws" in _lbl18, _lbl18)
+
+            # 2) 编辑 — save a new document through the UI.
+            _d18.find_element(By.ID, "btn-new").click()
+            time.sleep(0.8)
+            _t18 = _d18.find_element(By.ID, "editor-title")
+            _t18.clear()
+            _t18.send_keys("Offline Ops")
+            _a18 = _d18.find_element(By.ID, "editor-area")
+            _a18.clear()
+            _a18.send_keys("offline walk token kauri 71fj9")
+            _d18.find_element(By.ID, "btn-save").click()
+            time.sleep(1.2)
+            _rows18 = _d18.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            check("manual 5.3/Q3: edit capability succeeds offline (doc saved + listed)",
+                  any("Offline Ops" in (r.text or "") for r in _rows18),
+                  [r.text for r in _rows18])
+
+            # 3) 检索 — the in-memory FTS index answers a body-token query.
+            _s18 = _d18.find_element(By.ID, "search-term")
+            _s18.send_keys("kauri")
+            _d18.find_element(By.ID, "btn-search").click()
+            time.sleep(1.2)
+            _rows18 = _d18.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+            check("manual 5.3/Q3: search capability succeeds offline (body-token hit)",
+                  any("Offline Ops" in (r.text or "") for r in _rows18),
+                  [r.text for r in _rows18])
+            _s18.clear()
+            _d18.find_element(By.ID, "btn-search").click()
+            time.sleep(1.0)
+
+            # 4) 备份 — the real Export .kb button produces the stamped name
+            # (anchor-click capture idiom, no browser download to disk).
+            _d18.execute_script("""
+              window.__offlineExport = null;
+              const _o = HTMLAnchorElement.prototype.click;
+              HTMLAnchorElement.prototype.click = function () {
+                if (this.download) window.__offlineExport = this.download;
+                _o.call(this);
+              };
+              document.getElementById('btn-export').click();
+              return true;
+            """)
+            time.sleep(0.5)
+            _exp18 = _d18.execute_script("return window.__offlineExport")
+            check("manual 5.3/Q3: backup capability succeeds offline (.kb stamped name)",
+                  bool(re.match(r"^local-kb-backup-\d{4}-\d{2}-\d{2}-.*\.kb$",
+                                _exp18 or "")), _exp18)
+
+            # 5) 修改主密码 — re-key through the UI with the current password.
+            _d18.find_element(By.ID, "rekey-current").send_keys("cycle18 offline pw")
+            _d18.find_element(By.ID, "rekey-new").send_keys("cycle18 offline pw v2")
+            _d18.find_element(By.ID, "rekey-confirm").send_keys("cycle18 offline pw v2")
+            _d18.find_element(By.ID, "btn-rekey").click()
+            time.sleep(2.5)
+            _log18 = _d18.find_element(By.ID, "log").text
+            check("manual 5.3/Q3: rekey capability succeeds offline (log receipt)",
+                  "Master password changed" in _log18 and "re-wrapped" in _log18,
+                  _log18)
+
+            # Audit (a): the live wire trace during the five-capability walk.
+            _trace18 = _d18.execute_script("return window.__wireTrace")
+            _api18 = [x for x in _trace18 if _trace18 and str(x.get("t", ""))
+                      and not str(x.get("u", "")).lower().startswith(
+                          ("blob:", "data:", "about:"))]
+            check("manual 5.3/Q3: not one fetch/XHR/beacon call during the walk",
+                  isinstance(_trace18, list) and len(_api18) == 0, str(_api18)[:300])
+
+            # Audit (b): every subresource the page ever requested across its
+            # whole lifetime is same-origin — the module graph, icon data, etc.
+            # A CDN/telemetry host would appear here as a foreign origin.
+            _res18 = _d18.execute_script("""
+              return performance.getEntriesByType('resource')
+                       .map((e) => e.name);
+            """)
+            _org18 = (BASE.split("://", 1)[1].rsplit(":", 1)[0])
+            _foreign18 = [n for n in (_res18 or [])
+                          if n.startswith(("http://", "https://"))
+                          and not n.split("://", 1)[1].startswith(_org18)]
+            check("manual 5.3/Q3: every page-lifetime resource is app-origin " +
+                  "(no external CDN/telemetry)",
+                  isinstance(_res18, list) and len(_foreign18) == 0,
+                  str(_foreign18)[:300])
+        finally:
+            _d18.quit()
 
     finally:
         driver.quit()
