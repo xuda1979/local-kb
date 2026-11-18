@@ -3093,6 +3093,191 @@ console.log(out.join(" "));
         finally:
             _d18.quit()
 
+        # ---- 用户手册 4.1 可配置项一览: "备份格式 .kb（JSON，仅密文）" and
+        # "同步格式 .kbsync（文本，仅密文）". AC4 and M3 already pin that the
+        # exported bytes carry the crypto parameters and that no *plaintext
+        # needles* appear; nothing yet pins the FORMAT CONTRACT itself — that
+        # both files are valid JSON with the documented top-level schema (app /
+        # format / timestamp / workspace / documents|entries), that every
+        # payload field (dekIv, dekData, iv, data; workspace salt + verifier)
+        # is a decodable URL-safe-base64 ciphertext blob, and thus that
+        # "仅密文" holds at the field level, not just as a needle search. This
+        # block builds a fresh workspace through the same modules the Export /
+        # Sync out buttons call (bak.js / syncfile.js) and audits the two files.
+        _opts19 = Options()
+        _opts19.headless = True
+        _opts19.binary_location = fb
+        _opts19.set_preference("dom.indexedDB.enabled", True)
+        _d19 = webdriver.Firefox(options=_opts19)
+        try:
+            _d19.get(BASE + "/")
+            wait_for(_d19, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+            _fmt19 = json.loads(json.dumps(_d19.execute_async_script("""
+              const cb = arguments[arguments.length - 1];
+              (async () => {
+                const { IndexedDBBackend } = await import('/idb.js');
+                const { createKb } = await import('/src/factory.js');
+                const { exportKB, serializeKB } = await import('/src/bak.js');
+                const { buildTape, serializeTape } = await import('/src/syncfile.js');
+                const { uuid } = await import('/src/util.js');
+                const { fromBase64 } = await import('/src/crypto.js');
+                const db = new IndexedDBBackend('local-kb-c19');
+                const r = await createKb(db, 'cycle19 fmt pw', 'cycle19-format-ws');
+                if (!r || !r.store) return cb({ error: 'createKb failed' });
+                const mk = (t, b) => r.store.create(uuid(), t,
+                  [{ type: 'paragraph', text: b }]);
+                const docA = await mk('Format Probe Alpha',
+                  'needle FORMAT-PROBE-ALPHA-9e3c in alpha body');
+                await mk('Format Probe Beta',
+                  'needle FORMAT-PROBE-BETA-5d81 in beta body');
+                const docC = await mk('Format Probe Charlie',
+                  'needle FORMAT-PROBE-CHARLIE-c72a in charlie body');
+                // Delete one doc so the tape must carry a tombstone entry — a
+                // deleted:true skeleton WITHOUT ciphertext fields. The audit
+                // below must not mistake a live entry for a tombstone.
+                await r.store.delete(docC.id);
+                const params = await db.getParams();
+                const rows = [];
+                for (const { id } of await db.listDocs()) rows.push(await db.getDoc(id));
+                const kbText = new TextDecoder().decode(
+                  serializeKB(exportKB(params, rows)));
+                const tape = await buildTape(params, db);
+                const tapeText = new TextDecoder().decode(serializeTape(tape));
+                // Pre-report decodability of every payload blob using the app's
+                // own fromBase64; the Python audit cross-checks the same set via
+                // stdlib base64 so the contract is not app-self-agreement only.
+                const probe = (s) => {
+                  try { return fromBase64(s).byteLength; } catch { return -1; }
+                };
+                return cb({
+                  kb: kbText,
+                  tape: tapeText,
+                  liveDocs: rows.length,
+                  tapeEntries: tape.entries.length,
+                  tapeTombstones: tape.entries.filter((e) => e.deleted).length,
+                  sizes: {
+                    wsSalt: probe(params.salt),
+                    verIv: probe(params.verifier.iv),
+                    verData: probe(params.verifier.data),
+                  },
+                });
+              })().catch((e) => cb({ error: 'page: ' + String(e) }));
+            """), default=str))
+            check("manual 4.1/format: format probe ran on a fresh profile (non-vacuous)",
+                  isinstance(_fmt19, dict) and "error" not in _fmt19,
+                  str(_fmt19)[:200])
+            _kb_obj = json.loads(_fmt19.get("kb") or "")
+            _tp_obj = json.loads(_fmt19.get("tape") or "")
+            check("manual 4.1/format: .kb backup is valid JSON (备份格式 .kb JSON)",
+                  isinstance(_kb_obj, dict), str(_kb_obj)[:120])
+            check("manual 4.1/format: .kbsync sync file is valid JSON text "
+                  "(同步格式 .kbsync 文本)",
+                  isinstance(_tp_obj, dict), str(_tp_obj)[:120])
+
+            def _b64u19(s):
+                # URL-safe base64 with the app's unpadded alphabet (stdlib
+                # cross-check, independent of src/crypto.js).
+                import base64 as _b
+                try:
+                    return _b.urlsafe_b64decode(str(s) + "=" * (-len(str(s)) % 4))
+                except Exception:
+                    return None
+
+            check("manual 4.1/format: .kb has the documented top-level schema "
+                  "(app/format/exportedAt/workspace/documents)",
+                  {"app", "format", "exportedAt", "workspace", "documents"}
+                  <= set(_kb_obj.keys())
+                  and _kb_obj.get("app") == "local-kb"
+                  and _kb_obj.get("format") == 1,
+                  str(sorted(_kb_obj.keys())))
+            _ws19 = _kb_obj.get("workspace") or {}
+            check("manual 4.1/format: .kb workspace carries the cleartext public "
+                  "param set claimed by 4.1/4.2 (name/version/salt/iterations/"
+                  "verifier)",
+                  {"name", "version", "salt", "iterations", "verifier"}
+                  == set(_ws19.keys())
+                  and isinstance(_ws19.get("name"), str)
+                  and _ws19.get("version") == 1
+                  and _ws19.get("iterations") == 310000,
+                  str(_ws19)[:140])
+            _docs19 = _kb_obj.get("documents") or []
+            check("manual 4.1/format: .kb doc entries expose ONLY ciphertext keys "
+                  "(no title/blocks plaintext in the schema)",
+                  len(_docs19) >= 2 and all(
+                      set(d.keys()) == {"id", "dekIv", "dekData", "iv", "data",
+                                        "createdAt", "updatedAt"}
+                      for d in _docs19),
+                  str([sorted(d.keys()) for d in _docs19[:2]]))
+            _blobok19 = [d for d in _docs19 if all(
+                _b64u19(d.get(f)) is not None
+                for f in ("dekIv", "dekData", "iv", "data"))]
+            _lenok19 = all(
+                len(_b64u19(d.get("dekIv"))) == 12
+                and len(_b64u19(d.get("iv"))) == 12
+                and len(_b64u19(d.get("dekData"))) >= 44   # 32B DEK + 12B iv + GCM tag
+                and len(_b64u19(d.get("data"))) >= 16      # ≥ the AES-GCM auth tag
+                for d in _docs19)
+            check("manual 4.1/format: every .kb ciphertext field is decodeable "
+                  "base64url with AES-GCM shapes (dekIv/iv 12B, dekData ≥44B, data ≥16B)",
+                  len(_blobok19) == len(_docs19) and _lenok19,
+                  f"docs={len(_docs19)} decodable={len(_blobok19)}")
+            _ids19 = [d.get("id") for d in _docs19]
+            check("manual 4.1/format: .kb document ids are unique",
+                  len(set(_ids19)) == len(_ids19),
+                  f"ids={len(_ids19)} unique={len(set(_ids19))}")
+            _wssalt19 = _b64u19(_ws19.get("salt"))
+            _ver19 = _ws19.get("verifier") or {}
+            check("manual 4.1/format: workspace salt + verifier are decodable "
+                  "base64url (salt 16 random bytes, 仅密文 at field level)",
+                  _wssalt19 is not None and len(_wssalt19) == 16
+                  and _b64u19(_ver19.get("iv")) is not None
+                  and _b64u19(_ver19.get("data")) is not None,
+                  f"salt={str(_ws19.get('salt'))[:16]}…")
+            check("manual 4.1/format: the .kb file itself leaks no document "
+                  "plaintext (needles absent from the raw JSON text)",
+                  all(m not in (_fmt19.get("kb") or "") for m in
+                      ["FORMAT-PROBE-ALPHA-9e3c", "FORMAT-PROBE-BETA-5d81",
+                       "FORMAT-PROBE-CHARLIE-c72a", "Format Probe Alpha"]),
+                  "needle leaked into .kb")
+
+            check("manual 4.1/format: .kbsync has the documented tape schema "
+                  "(app/type/format/createdAt/workspace/entries)",
+                  {"app", "type", "format", "createdAt", "workspace", "entries"}
+                  <= set(_tp_obj.keys())
+                  and _tp_obj.get("app") == "local-kb"
+                  and _tp_obj.get("type") == "sync-tape"
+                  and _tp_obj.get("format") == 1,
+                  str(sorted(_tp_obj.keys())))
+            _ents19 = _tp_obj.get("entries") or []
+            _live19 = [e for e in _ents19 if not e.get("deleted")]
+            _dead19 = [e for e in _ents19 if e.get("deleted")]
+            check("manual 4.1/format: live tape entries carry the same four "
+                  "decodable ciphertext blobs as the .kb docs",
+                  len(_live19) >= 1 and all(
+                      {"id", "dekIv", "dekData", "iv", "data",
+                       "createdAt", "updatedAt", "deleted"} == set(e.keys())
+                      and all(_b64u19(e.get(f)) is not None
+                              for f in ("dekIv", "dekData", "iv", "data"))
+                      for e in _live19),
+                  f"live={len(_live19)} shapes={[sorted(e.keys()) for e in _live19[:1]]}")
+            check("manual 4.1/format: tombstoned tape entries are ciphertext-free "
+                  "delete markers (deleted:true, no payload fields)",
+                  len(_dead19) >= 1 and all(
+                      set(e.keys()) == {"id", "updatedAt", "deleted"}
+                      and e.get("deleted") is True
+                      and all(f not in e for f in ("dekIv", "dekData", "iv", "data"))
+                      for e in _dead19),
+                  f"tombstones={len(_dead19)} shapes={[sorted(e.keys()) for e in _dead19[:1]]}")
+            check("manual 4.1/format: the .kbsync file itself leaks no document "
+                  "plaintext (needles absent from the raw JSON text)",
+                  all(m not in (_fmt19.get("tape") or "") for m in
+                      ["FORMAT-PROBE-ALPHA-9e3c", "FORMAT-PROBE-BETA-5d81",
+                       "FORMAT-PROBE-CHARLIE-c72a", "Format Probe Alpha",
+                       "Format Probe Beta", "Format Probe Charlie"]),
+                  "needle leaked into .kbsync")
+        finally:
+            _d19.quit()
+
     finally:
         driver.quit()
 
