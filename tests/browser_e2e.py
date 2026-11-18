@@ -427,6 +427,7 @@ def main():
             '\n[ok](https://example.com/path)'
             '\nplain paragraph text'
             '\n---'
+            '\n___'
         )
         driver.find_element(By.ID, "btn-preview").click()
         time.sleep(0.6)
@@ -479,9 +480,14 @@ def main():
         # (markdown.js:144-150) has no browser pin — a regression that let `---`
         # fall through to the paragraph branch would pass every existing check.
         # So a lone `---` line must render as exactly one <hr>, with no <p>
-        # wrapper around it.
-        check("preview renders horizontal rule as <hr> (设计说明书 3.8)",
-              inner.count("<hr>") == 1 and "<p>---</p>" not in inner,
+        # wrapper around it. The `___` variant (markdown.js:145 character class
+        # `[-*_]`) was pinned nowhere — not in the browser (the new `---` pin)
+        # nor even at the Node unit level (markdown.test.mjs:33-36 pins only
+        # `---` and `***`). Dropping `_` from the regex is exactly the kind of
+        # "simplification" that would leave all current pins green, so `___`
+        # must also render as exactly one <hr> with no <p> wrapper.
+        check("preview renders both hr variants --- and ___ as <hr> (设计说明书 3.8)",
+              inner.count("<hr>") == 2 and "<p>---</p>" not in inner and "<p>___</p>" not in inner,
               f"hrs={inner.count('<hr>')} {inner[:300]}")
         check("preview toggle button flips to Edit", driver.find_element(By.ID, "btn-preview").text == "Edit")
         driver.find_element(By.ID, "btn-preview").click()  # back to editor
