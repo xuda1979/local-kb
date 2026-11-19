@@ -1830,6 +1830,21 @@ def main():
             const oldH = await importAesGcm(oldWsk);
             let oldOpensOld = false;
             try { await decrypt(oldH, oldDek.iv, oldDek.data); oldOpensOld = true; } catch (e) {}
+            // 设计说明书 3.6 a): re-key must "用 current 解锁，失败则返回错误且零
+            // 副作用（先验后改）" — a wrong CURRENT password therefore has to be a
+            // strict no-op: error returned, DEK wrappers untouched, params/
+            // verifier untouched, old password still authoritative, new one still
+            // refused. No browser-level check drives this path — every rekey-current
+            // send_keys in the run uses the correct password, and even this script's
+            // own success call passes OLD_PW — so a regression that re-wrapped DEKs
+            // (or saved params) BEFORE verifying the current password would silently
+            // succeed under every existing check.
+            const failRes = await changeMasterPassword(scratch, 'wrong current pw', NEW_PW);
+            const afterFail = await scratch.getDoc('doc-rk');
+            const paramsFail = await scratch.getParams();
+            const failWrongDenied = await unlockWorkspace(paramsFail, 'wrong current pw');
+            const failOldStillAuths = await unlockWorkspace(paramsFail, OLD_PW);
+            const failNewRefused = await unlockWorkspace(paramsFail, NEW_PW);
             const rk = await changeMasterPassword(scratch, OLD_PW, NEW_PW);
             const after = await scratch.getDoc('doc-rk');
             const rawNew = new Uint8Array(
@@ -1860,6 +1875,17 @@ def main():
               dekChanged: oldDek.iv !== after.dekIv || oldDek.data !== after.dekData,
               newOpensNew: !!newDek, oldFailsOnNew, docGood,
               newAuthOk: newAuth.ok === true, oldAuthDenied: oldAuth.ok === false,
+              failDenied: !!(failRes && !failRes.ok &&
+                            failRes.error === 'wrong-master-password'),
+              failDekUntouched: oldDek.iv === afterFail.dekIv &&
+                                oldDek.data === afterFail.dekData,
+              failParamsUntouched: paramsFail.salt === params.salt &&
+                                   paramsFail.iterations === params.iterations &&
+                                   paramsFail.verifier.iv === params.verifier.iv &&
+                                   paramsFail.verifier.data === params.verifier.data,
+              failOldAuths: failOldStillAuths.ok === true,
+              failNewRefused: failNewRefused.ok === false,
+              failWrongDenied: failWrongDenied.ok === false,
             });
           })().catch((e) => cb({ error: String(e) }));
         """)
@@ -1876,6 +1902,13 @@ def main():
         check("re-key: new password authenticates, old password refused (manual 4.2/Q6)",
               rk2.get("newAuthOk") is True and rk2.get("oldAuthDenied") is True,
               "new-auth=%s old-denied=%s" % (rk2.get("newAuthOk"), rk2.get("oldAuthDenied")))
+        check("re-key: wrong current password refused with zero side effects (设计说明书 3.6 先验后改)",
+              rk2.get("failDenied") is True and rk2.get("failDekUntouched") is True and
+              rk2.get("failParamsUntouched") is True and rk2.get("failOldAuths") is True and
+              rk2.get("failNewRefused") is True and rk2.get("failWrongDenied") is True,
+              "denied=%s dek-untouched=%s params-untouched=%s old-auths=%s new-refused=%s wrong-denied=%s" %
+              (rk2.get("failDenied"), rk2.get("failDekUntouched"), rk2.get("failParamsUntouched"),
+               rk2.get("failOldAuths"), rk2.get("failNewRefused"), rk2.get("failWrongDenied")))
 
         # ---- FAQ Q1 + 3.1 安全提示: no recovery, and nothing recoverable is
         # stored (manual 5.3 Q1: "按设计无法找回。主密码为唯一解密凭据，系统不
