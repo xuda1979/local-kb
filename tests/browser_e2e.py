@@ -3912,6 +3912,45 @@ console.log(out.join(" "));
                   .some((t) => t.id === 'rowop-d1' && t.updatedAt === 'rowop-t2');
                 const rowopTombNotInDocs =
                   !(await db.listDocs()).some((r) => r.id === 'rowop-d1');
+                // 设计说明书 3.9: "IndexedDBBackend：实现与 SQLiteBackend 相同
+                // 接口；…FTS 为内存 Map 结构，与 SQLite 的
+                // ftsPut/ftsDelete/ftsSearch 语义一致". The FTS index is a
+                // per-instance in-memory Map (public/idb.js fts): ftsPut
+                // indexes doc plaintext, ftsDelete ejects a doc, and
+                // ftsSearch is a space-separated token-AND substring match
+                // that is case-insensitive, never throws on degenerate
+                // queries (whitespace-only -> empty set), and returns []
+                // for absent tokens — the same observable contract the
+                // SQLite/FTS5 backend meets (src/db.js ftsSearch catches
+                // FTS5 syntax errors and returns []). The discriminating
+                // "in-memory" proof: a FRESH backend over the same
+                // workspace/docs/meta stores starts with an EMPTY index —
+                // the cleartext index is never persisted to disk.
+                await db.ftsPut('fts-1',
+                  'obsidian-sigil-e71f FTS-PROBE-ALPHA-9e3c in alpha body');
+                await db.ftsPut('fts-2',
+                  'obsidian-sigil-e71f FTS-PROBE-BETA-5d81 in beta body');
+                const ftsBoth = (await db.ftsSearch('obsidian-sigil-e71f'))
+                  .map((h) => h.id).sort();
+                const ftsNarrow = (await db.ftsSearch(
+                  'obsidian-sigil-e71f FTS-PROBE-ALPHA-9e3c')).map((h) => h.id);
+                const ftsUpper = (await db.ftsSearch('OBSIDIAN-SIGIL-E71F'))
+                  .map((h) => h.id).sort();
+                const ftsAbsentCount = (await db.ftsSearch(
+                  'obsidian-sigil-e71f zanzibar-fresh-token-77')).length;
+                const ftsBlankCount = (await db.ftsSearch('   ')).length;
+                await db.ftsDelete('fts-1');
+                const ftsAfterDel = (await db.ftsSearch('obsidian-sigil-e71f'))
+                  .map((h) => h.id).sort();
+                await db.ftsPut('fts-1',
+                  'obsidian-sigil-e71f FTS-PROBE-ALPHA-9e3c in alpha body');
+                const ftsReadd = (await db.ftsSearch(
+                  'obsidian-sigil-e71f FTS-PROBE-ALPHA-9e3c')).map((h) => h.id);
+                const fresh = new IndexedDBBackend('local-kb-c19');
+                const ftsFreshCount = (await fresh.ftsSearch(
+                  'obsidian-sigil-e71f')).length;
+                const ftsGoneCount = (await fresh.ftsSearch(
+                  'FTS-PROBE-BETA-5d81')).length;
                 return cb({
                   rowop: {
                     upsertCount: rowopUpsertCount,
@@ -3922,6 +3961,17 @@ console.log(out.join(" "));
                     goneAfterDelete: rowopGone === null,
                     tombSurvives: rowopTombSurvives,
                     tombNotInDocs: rowopTombNotInDocs,
+                  },
+                  fts: {
+                    both: ftsBoth,
+                    narrow: ftsNarrow,
+                    upper: ftsUpper,
+                    absentCount: ftsAbsentCount,
+                    blankCount: ftsBlankCount,
+                    afterDel: ftsAfterDel,
+                    readd: ftsReadd,
+                    freshCount: ftsFreshCount,
+                    goneCount: ftsGoneCount,
                   },
                   kb: kbText,
                   tape: tapeText,
@@ -4136,6 +4186,44 @@ console.log(out.join(" "));
                   and _rowop.get("tombSurvives") is True
                   and _rowop.get("tombNotInDocs") is True,
                   str(_rowop)[:200])
+            # ---- 设计说明书 3.9: "IndexedDBBackend：实现与 SQLiteBackend 相同
+            # 接口；…FTS 为内存 Map 结构，与 SQLite 的 ftsPut/ftsDelete/
+            # ftsSearch 语义一致". Pins the adapter-level FTS contract on the
+            # browser backend: ftsSearch is a space-separated token-AND
+            # substring match, case-insensitive, that never throws on
+            # degenerate queries and returns [] for absent tokens (what the
+            # SQLite/FTS5 backend's syntax-error catch produces) — plus the
+            # discriminating "in-memory Map" proof: a FRESH backend over the
+            # same stores starts with an EMPTY index, so the cleartext index
+            # is never persisted.
+            _fts = _fmt19.get("fts") or {}
+            check("manual 4.1/format: IndexedDB ftsSearch is token-AND substring "
+                  "match with SQLite-equivalent semantics — 'needle' hits both "
+                  "docs, adding a second token narrows to one, case does not "
+                  "matter, absent/whitespace queries return the empty set "
+                  "(设计说明书 3.9 FTS 语义一致 / 3.10 c 检索容错)",
+                  sorted(_fts.get("both") or []) == ["fts-1", "fts-2"]
+                  and sorted(_fts.get("narrow") or []) == ["fts-1"]
+                  and sorted(_fts.get("upper") or []) == ["fts-1", "fts-2"]
+                  and int(_fts.get("absentCount", -1)) == 0
+                  and int(_fts.get("blankCount", -1)) == 0,
+                  "both=%s narrow=%s upper=%s absent=%s blank=%s"
+                  % (_fts.get("both"), _fts.get("narrow"), _fts.get("upper"),
+                     _fts.get("absentCount"), _fts.get("blankCount")))
+            check("manual 4.1/format: IndexedDB ftsDelete ejects exactly the "
+                  "deleted doc and ftsPut re-indexes it — the in-memory index "
+                  "mirrors the live doc set (设计说明书 3.9 ftsPut/ftsDelete 语义一致)",
+                  sorted(_fts.get("afterDel") or []) == ["fts-2"]
+                  and sorted(_fts.get("readd") or []) == ["fts-1"],
+                  "afterDel=%s readd=%s" % (_fts.get("afterDel"), _fts.get("readd")))
+            check("manual 4.1/format: the FTS index is a per-instance in-memory "
+                  "Map — a fresh backend over the same stores starts EMPTY and "
+                  "finds nothing until reindexed (设计说明书 3.9 FTS 内存 Map / "
+                  "用户手册 3.2 解锁后重建索引)",
+                  int(_fts.get("freshCount", -1)) == 0
+                  and int(_fts.get("goneCount", -1)) == 0,
+                  "freshCount=%s goneCount=%s"
+                  % (_fts.get("freshCount"), _fts.get("goneCount")))
         finally:
             _d19.quit()
 
