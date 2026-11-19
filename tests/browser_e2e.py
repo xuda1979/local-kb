@@ -1301,6 +1301,52 @@ def main():
         ids_json = json.dumps(sync_obj.get("peerDocs", 0))
         check("M3: sync tape carried a doc (peer lists " + ids_json + ")", sync_obj.get("peerDocs", 0) >= 1)
 
+        # ---- 设计说明书 3.7 mergeTape: pure module-import probe (no vault, no
+        # driver.get re-anchor) pinning the LWW merge contract — per docId the
+        # newest updatedAt wins (exactly one entry survives), the merged output
+        # is a DETERMINISTIC order (sorted by updatedAt asc then id asc,
+        # identical whatever the two input tapes' order), and malformed entries
+        # (null / undefined / missing id) are ignored.
+        mtape_json = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { mergeTape } = await import('/src/sync.js');
+            const e = (id, updatedAt, data) => ({
+              id, updatedAt, iv: 'iv', data, dekIv: 'di', dekData: 'dd', createdAt: '',
+            });
+            // newest updatedAt wins per docId, exactly one surviving entry
+            const r1 = mergeTape([e('d1', '2026-01-01T00:00:00.000Z', 'old')],
+                                 [e('d1', '2026-01-02T00:00:00.000Z', 'new')]);
+            // deterministic order: (updatedAt asc, id asc), input-order independent
+            const A = [e('d0', '2026-01-05T00:00:00.000Z', 'z'),
+                       e('dA', '2026-01-03T00:00:00.000Z', 'a'),
+                       e('dB', '2026-01-03T00:00:00.000Z', 'b')];
+            const B = [e('dM', '2026-01-04T00:00:00.000Z', 'm'),
+                       e('dC', '2026-01-01T00:00:00.000Z', 'c')];
+            const m1 = mergeTape(A, B);
+            const m2 = mergeTape(B, A);
+            // invalid entries ignored
+            const r3 = mergeTape([null, undefined, { updatedAt: '2026-02-02T00:00:00.000Z' },
+                                  e('ok', '2026-02-01T00:00:00.000Z', 'fine')], []);
+            return cb({
+              r1Data: r1[0] && r1[0].data,
+              r1Len: r1.length,
+              m1Ids: m1.map((x) => x.id).join(','),
+              m2Ids: m2.map((x) => x.id).join(','),
+              r3Len: r3.length,
+              r3Ok: r3[0] && r3[0].id,
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """)
+        mt = json.loads(json.dumps(mtape_json))
+        check("M3: no errors in mergeTape probe", "error" not in mt)
+        check("M3: mergeTape keeps the NEWEST updatedAt per docId, exactly one entry survives (设计说明书 3.7 LWW 对 (updatedAt, id) 取优)",
+              mt.get("r1Len") == 1 and mt.get("r1Data") == "new")
+        check("M3: mergeTape output is deterministic — order sorted by (updatedAt asc, id asc) and identical for either tape order (设计说明书 3.7 输出确定序)",
+              mt.get("m1Ids") == "dC,dA,dB,dM,d0" and mt.get("m2Ids") == mt.get("m1Ids"))
+        check("M3: mergeTape ignores invalid entries (null / undefined / missing id) (设计说明书 3.7 无效条目忽略)",
+              mt.get("r3Len") == 1 and mt.get("r3Ok") == "ok")
+
         # ---- 用户手册 3.8 real-button sync flow: the app's Sync out button must
         # download a timestamp-stamped .kbsync (同 .kb 的 stampedName 命名规则),
         # the Sync in file input must apply a same-workspace tape with the app's
