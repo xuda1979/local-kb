@@ -2333,6 +2333,71 @@ def main():
               q1.get("wrongPwRefused") is True and q1.get("rightPwAccepted") is True,
               "wrong=%s right=%s" % (q1.get("wrongPwRefused"), q1.get("rightPwAccepted")))
 
+        # ---- 设计说明书 3.2 unlockWorkspace's explicit failure contract. The
+        # sentence 失败（密码错误或判定失败）返回 {ok:false, error:'unlock-failed'}
+        # is the only 3.2 sub-claim with no pin: the Q1 checks above assert only
+        # wrong.ok === false, never the error string, and never the
+        # tampered-verifier (判定失败) leg. This probe pins all three contract
+        # legs: wrong password ⇒ {ok:false, error:'unlock-failed'}, a one-block
+        # tampered verifier blob ⇒ the same explicit error (判定失败), and the
+        # right password ⇒ {ok:true, workspace} carrying a 32-byte derived
+        # workspaceKey that createKb deliberately never persists (factory.js
+        # saveParams sends only name/version/salt/iterations/verifier).
+        ws35_probe = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { createKb } = await import('/src/factory.js');
+            const { createWorkspace, unlockWorkspace } = await import('/src/workspace.js');
+            const PW = 'pw-ws35-probe-bzq';
+            const scratch = new IndexedDBBackend('local-kb-scratch-ws35');
+            const ws = await createWorkspace(PW, 'ws35-probe');
+            const createdShape = (
+              Object.keys(ws).sort().join(',') ===
+                'iterations,name,salt,verifier,version,workspaceKey'
+              && ws.version === 1
+              && ws.iterations === 310000
+            );
+            await createKb(scratch, PW, 'ws35-probe');
+            const persisted = await scratch.getParams();
+            const persistedLacksKey = persisted && !('workspaceKey' in persisted);
+            const wrong = await unlockWorkspace(ws, 'wrong-pw-ws35');
+            const tampered = await unlockWorkspace(
+              { ...ws, verifier: { iv: ws.verifier.iv,
+                                   data: ws.verifier.data.slice(0, -4) + 'AAAA' } },
+              PW);
+            const right = await unlockWorkspace(ws, PW);
+            return cb({
+              createdShape,
+              persistedLacksKey,
+              wrongFail: wrong && wrong.ok === false && wrong.error === 'unlock-failed',
+              tamperedFail: tampered && tampered.ok === false && tampered.error === 'unlock-failed',
+              rightOk: right && right.ok === true,
+              rightKeyLen: right && right.workspace && right.workspace.workspaceKey
+                ? right.workspace.workspaceKey.length : -1,
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """)
+        ws35 = json.loads(json.dumps(ws35_probe))
+        check("设计说明书 3.2: createWorkspace returns {version=1, name, salt, iterations, "
+              "verifier, workspaceKey} and createKb persists no workspaceKey",
+              ws35.get("createdShape") is True and ws35.get("persistedLacksKey") is True,
+              "shape=%s persist-key=%s err=%s" %
+              (ws35.get("createdShape"), ws35.get("persistedLacksKey"), ws35.get("error")))
+        check("设计说明书 3.2: wrong password fails the verifier gate with "
+              "{ok:false, error:'unlock-failed'}",
+              ws35.get("wrongFail") is True,
+              "wrong=%s err=%s" % (ws35.get("wrongFail"), ws35.get("error")))
+        check("设计说明书 3.2: a tampered verifier blob (判定失败) hits the same "
+              "explicit {ok:false, error:'unlock-failed'} contract",
+              ws35.get("tamperedFail") is True,
+              "tampered=%s err=%s" % (ws35.get("tamperedFail"), ws35.get("error")))
+        check("设计说明书 3.2: the right password returns {ok:true} carrying a 32-byte "
+              "derived workspaceKey",
+              ws35.get("rightOk") is True and ws35.get("rightKeyLen") == 32,
+              "ok=%s keylen=%s err=%s" %
+              (ws35.get("rightOk"), ws35.get("rightKeyLen"), ws35.get("error")))
+
         # ---- Lock: drop the master password from the session and clear memory
         driver.find_element(By.ID, "btn-lock").click()
         wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
