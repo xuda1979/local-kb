@@ -3862,6 +3862,7 @@ console.log(out.join(" "));
                 for (const { id } of await db.listDocs()) rows.push(await db.getDoc(id));
                 const kbText = new TextDecoder().decode(
                   serializeKB(exportKB(params, rows)));
+                const kb = JSON.parse(kbText);
                 const tape = await buildTape(params, db);
                 const tapeText = new TextDecoder().decode(serializeTape(tape));
                 // Pre-report decodability of every payload blob using the app's
@@ -3870,12 +3871,31 @@ console.log(out.join(" "));
                 const probe = (s) => {
                   try { return fromBase64(s).byteLength; } catch { return -1; }
                 };
+                // 设计说明书 3.7 localTape bijection: the tape must carry EXACTLY
+                // one ciphertext entry per live doc and one deleted:true skeleton
+                // per tombstone — no extras, no gaps. Also, the live entries must
+                // be a byte-identical copy of the .kb doc rows for the same ids
+                // (both are snapshots of the same on-disk ciphertext).
+                const liveE = tape.entries.filter((e) => !e.deleted);
+                const deadE = tape.entries.filter((e) => e.deleted);
+                const kbById = Object.fromEntries(kb.documents.map((d) => [d.id, d]));
+                const tapeBlobEqDocs = liveE.every((e) => kbById[e.id]
+                  && ['dekIv', 'dekData', 'iv', 'data', 'createdAt', 'updatedAt']
+                     .every((f) => kbById[e.id][f] === e[f]));
                 return cb({
                   kb: kbText,
                   tape: tapeText,
                   liveDocs: rows.length,
                   tapeEntries: tape.entries.length,
                   tapeTombstones: tape.entries.filter((e) => e.deleted).length,
+                  tapeLiveIds: liveE.map((e) => e.id),
+                  tapeTombIds: deadE.map((e) => e.id),
+                  kbDocIds: kb.documents.map((d) => d.id),
+                  tapeBlobEqDocs,
+                  tapeLiveFull: liveE.every((e) => e.deleted === false
+                    && e.iv && e.data && e.dekIv && e.dekData),
+                  tapeDeadSkeleton: deadE.every((e) => e.deleted === true
+                    && !e.iv && !e.data && !e.dekIv && !e.dekData),
                   sizes: {
                     wsSalt: probe(params.salt),
                     verIv: probe(params.verifier.iv),
@@ -3996,6 +4016,55 @@ console.log(out.join(" "));
                        "FORMAT-PROBE-CHARLIE-c72a", "Format Probe Alpha",
                        "Format Probe Beta", "Format Probe Charlie"]),
                   "needle leaked into .kbsync")
+            # ---- 设计说明书 3.7: "localTape(adapter)：每个存活文档一条密文条目 +
+            # 每条墓碑一条 deleted:true 条目". The schema checks above pin the
+            # entry SHAPES (>= 1 each); this pins the exact COUNT bijection the
+            # tape builder must honor — exactly N ciphertext entries for N live
+            # docs plus exactly M tombstone skeletons for M tombstones, with the
+            # live entries a byte-identical copy of the .kb doc rows for the same
+            # ids (both snapshot the same on-disk ciphertext) and every tombstone
+            # marker's id absent from the live/exported set (a ghost deleted doc
+            # must never resurrect as a "live" entry).
+            _tlive_ids = list(_fmt19.get("tapeLiveIds") or [])
+            _ttomb_ids = list(_fmt19.get("tapeTombIds") or [])
+            _tkb_ids = list(_fmt19.get("kbDocIds") or [])
+            check("manual 4.1/format: the tape carries EXACTLY one entry per live "
+                  "doc plus one deleted:true per tombstone — "
+                  "tapeEntries == liveDocs + tapeTombstones, with 2 live / 1 "
+                  "tombstone after the 3-created-1-deleted fixture "
+                  "(设计说明书 3.7 每个存活文档一条密文条目 + 每条墓碑一条 deleted:true 条目)",
+                  int(_fmt19.get("liveDocs", -1)) == 2
+                  and int(_fmt19.get("tapeTombstones", -1)) == 1
+                  and (int(_fmt19.get("tapeEntries", -1))
+                       == int(_fmt19.get("liveDocs", -1))
+                          + int(_fmt19.get("tapeTombstones", -1))),
+                  "liveDocs=%s entries=%s tombstones=%s"
+                  % (_fmt19.get("liveDocs"), _fmt19.get("tapeEntries"),
+                     _fmt19.get("tapeTombstones")))
+            check("manual 4.1/format: the tape's live entry ids are EXACTLY the "
+                  "exported .kb doc ids — no extra live entry, no missing doc "
+                  "(设计说明书 3.7 每个存活文档一条密文条目)",
+                  len(_tlive_ids) == int(_fmt19.get("liveDocs", -1))
+                  and sorted(_tlive_ids) == sorted(_tkb_ids)
+                  and len(_tlive_ids) == 2,
+                  "live=%s kb-docs=%s" % (sorted(_tlive_ids), sorted(_tkb_ids)))
+            check("manual 4.1/format: tombstone markers are ghost-only — exactly "
+                  "one deleted:true skeleton, its id absent from the live/exported "
+                  "doc set (设计说明书 3.7 每条墓碑一条 deleted:true 条目)",
+                  len(_ttomb_ids) == 1
+                  and _ttomb_ids[0] not in _tlive_ids
+                  and _ttomb_ids[0] not in _tkb_ids,
+                  "tomb-ids=%s live=%s" % (_ttomb_ids, sorted(_tlive_ids)))
+            check("manual 4.1/format: live tape entries are a byte-identical copy "
+                  "of the .kb doc rows (dekIv/dekData/iv/data/createdAt/updatedAt) "
+                  "and are full ciphertext carriers while every tombstone entry is "
+                  "a skeleton with no payload fields (设计说明书 3.7 密文条目 / 3.8 仅密文)",
+                  _fmt19.get("tapeBlobEqDocs") is True
+                  and _fmt19.get("tapeLiveFull") is True
+                  and _fmt19.get("tapeDeadSkeleton") is True,
+                  "blobEqDocs=%s liveFull=%s deadSkeleton=%s"
+                  % (_fmt19.get("tapeBlobEqDocs"), _fmt19.get("tapeLiveFull"),
+                     _fmt19.get("tapeDeadSkeleton")))
         finally:
             _d19.quit()
 
