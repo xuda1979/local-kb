@@ -3127,7 +3127,8 @@ console.log(out.join(" "));
                   const ptOwn = await decrypt(await importAesGcm(dekBytes),
                                               d.iv, d.data);
                   recs[d.id] = { dek: toBase64(dekBytes), iv: d.iv, data: d.data,
-                                 plain: new TextDecoder().decode(ptOwn) };
+                                 plain: new TextDecoder().decode(ptOwn),
+                                 dekLen: dekBytes.byteLength };
                 }
                 // Doc IDs are random, so sorted order is NOT creation order.
                 // Identify each probe document by its own decrypted plaintext
@@ -3149,6 +3150,7 @@ console.log(out.join(" "));
                 } catch (e) { cross = 'rejected'; }
                 return cb({ idA, idB, dekA: recs[idA].dek, dekB: recs[idB].dek,
                             plainA: recs[idA].plain, plainB: recs[idB].plain,
+                            dekLenA: recs[idA].dekLen, dekLenB: recs[idB].dekLen,
                             cross });
               })().catch((e) => cb({ error: String(e) }));
             """)
@@ -3161,6 +3163,18 @@ console.log(out.join(" "));
                   bool(_dk17.get("dekA")) and _dk17.get("dekA") != _dk17.get("dekB"),
                   "A=%s... B=%s..." % (str(_dk17.get("dekA"))[:24],
                                        str(_dk17.get("dekB"))[:24]))
+            # 设计说明书 2.2 设计要点 b): "每个文档生成独立随机 32 字节 DEK"
+            # (line 109). The DIFFERENT check above proves independence, but no
+            # existing check asserts the RAW UNWRAPPED length is exactly 32 bytes
+            # — a regression changing randomBytes(32) to e.g. randomBytes(16)
+            # would still pass every current check (each doc would just carry a
+            # shorter independent DEK). Assert the exact 32-byte length on BOTH
+            # probe documents' unwrapped DEKs.
+            check("manual 4.2: each unwrapped per-doc DEK is exactly 32 random "
+                  "bytes (设计说明书 2.2 设计要点 b)",
+                  _dk17.get("dekLenA") == 32 and _dk17.get("dekLenB") == 32,
+                  "lenA=%r lenB=%r" % (_dk17.get("dekLenA"),
+                                       _dk17.get("dekLenB")))
             check("manual 4.2: each DEK decrypts its own document's ciphertext to " +
                   "its own plaintext",
                   bool(_dk17.get("plainA")) and bool(_dk17.get("plainB")) and
