@@ -426,6 +426,7 @@ def main():
             '\n> quote\n>> nested\n'
             '\n[data](data:image/png;base64,AAAA)'
             '\n[ok](https://example.com/path)'
+            '\n[http](http://example.com/plain)'
             '\n[mail](mailto:a@b.com)'
             '\n[anchor](#sec)'
             '\n[rel](/rel/path)'
@@ -524,6 +525,14 @@ def main():
         check("preview keeps safe https: links as real anchors (manual 3.5)",
               "<a href=\"https://example.com/path\">ok</a>" in inner
               and "<em>ok</em>" not in inner, inner[:300])
+        # 设计说明书 3.8 line 283 pins the allowlist as "http(s):/mailto:/#//"
+        # — the https/mailto/#/relative legs are asserted above, but the plain
+        # http: (non-TLS) leg is NOT: a SAFE_URL simplification to /^https:/
+        # (or a dropped http branch) would render http: as degraded <em> and
+        # still pass every existing anchor check. Pin it as a real anchor.
+        check("preview keeps plain http: links as real anchors (设计说明书 3.8)",
+              "<a href=\"http://example.com/plain\">http</a>" in inner
+              and "<em>http</em>" not in inner, inner[:300])
         # The SAFE_URL allowlist above also takes mailto:, #-fragment, and
         # bare-/ relative targets — the same class of pin as the https: leg:
         # dropping any of these legs (a "simplified" SAFE_URL like /^https?:/)
