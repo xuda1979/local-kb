@@ -2102,6 +2102,19 @@ def main():
             const mix = textToBlocks(
               'p1\\n\\np2\\n\\n# H\\n\\n> q\\n\\n```\\ncode\\n```\\n\\n| a | b |');
             const rt = blocksToMarkdown(mix);
+            // Multi-level markers must survive the split + re-emit verbatim:
+            // heading hash levels ##..###### (用户手册 3.5 无损) and nested
+            // quote prefixes >/>>/>>> (设计说明书 3.8 逐字存储). Legacy blocks
+            // saved before the marker was stored verbatim carry bare text —
+            // blocksToMarkdown must still re-emit the marker (兜底补全).
+            const deep = textToBlocks('###### H6\\n\\n### H3\\n\\n## H2\\n\\nplain');
+            const deepRt = blocksToMarkdown(deep);
+            const nested = textToBlocks('> outer\\n>> nested\\n>>> deep');
+            const nestedRt = blocksToMarkdown(nested);
+            const legacyH = blocksToMarkdown([{ type: 'heading', text: 'bare' }]);
+            const legacyQ = blocksToMarkdown([{ type: 'quote', text: 'bareq' }]);
+            const legacyK = blocksToMarkdown([{ type: 'heading', text: '## kept' },
+                                              { type: 'quote', text: '> kept' }]);
             return cb({
               twoTypes: two.map((b) => b.type),
               twoTexts: two.map((b) => b.text),
@@ -2115,6 +2128,15 @@ def main():
               rtKeeps: ['p1', 'p2', '# H', '> q', 'code', '| a | b |']
                 .every((s) => rt.includes(s)),
               rtParaJoin: rt.split('\\n').slice(0, 2).join('#'),
+              deepTypes: deep.map((b) => b.type + ':' + b.text),
+              deepRt: deepRt,
+              deepLossless: deepRt == '###### H6\\n### H3\\n## H2\\nplain',
+              nestedTypes: nested.map((b) => b.type + ':' + b.text),
+              nestedRt: nestedRt,
+              nestedLossless: nestedRt == '> outer\\n>> nested\\n>>> deep',
+              legacyH: legacyH,
+              legacyQ: legacyQ,
+              legacyKept: legacyK,
             });
           })().catch((e) => cb({ error: String(e) }));
         """)
@@ -2148,6 +2170,33 @@ def main():
               bs.get("rtParaJoin") == "p1#p2",
               "lines=%s keeps=%s join=%s" %
               (bs.get("rtLineCount"), bs.get("rtKeeps"), bs.get("rtParaJoin")))
+        check("block parse: every heading LEVEL ##..###### survives split + "
+              "re-emit verbatim — hashes are stored in the block and never "
+              "flattened (用户手册 3.5: 标题的级别（## 至 ######）无损保留 / "
+              "设计说明书 3.8 保留原始标记逐字存储)",
+              bs.get("deepLossless") is True and
+              bs.get("deepTypes") == ["heading:###### H6", "heading:### H3",
+                                     "heading:## H2", "paragraph:plain"] and
+              bs.get("deepRt") == "###### H6\n### H3\n## H2\nplain",
+              "types=%s rt=%s" % (bs.get("deepTypes"), repr(bs.get("deepRt"))))
+        check("block parse: nested quote depth >>/>>> survives verbatim — "
+              "each level's > is stored and re-emitted as typed quote blocks "
+              "(用户手册 3.5: 嵌套引用（>>）无损保留 / 设计说明书 3.8 逐字存储)",
+              bs.get("nestedLossless") is True and
+              bs.get("nestedTypes") == ["quote:> outer", "quote:>> nested",
+                                       "quote:>>> deep"] and
+              bs.get("nestedRt") == "> outer\n>> nested\n>>> deep",
+              "types=%s rt=%s" % (bs.get("nestedTypes"),
+                                  repr(bs.get("nestedRt"))))
+        check("block parse: legacy bare-text heading/quote get the # / > "
+              "marker re-emitted (兜底补全, 设计说明书 3.8 旧文档缺失标记时按 "
+              "# / > 兜底) while already-marked blocks stay verbatim",
+              bs.get("legacyH") == "# bare" and
+              bs.get("legacyQ") == "> bareq" and
+              bs.get("legacyKept") == "## kept\n> kept",
+              "legacyH=%s legacyQ=%s kept=%s" %
+              (repr(bs.get("legacyH")), repr(bs.get("legacyQ")),
+               repr(bs.get("legacyKept"))))
 
         # ---- FAQ Q1 + 3.1 安全提示: no recovery, and nothing recoverable is
         # stored (manual 5.3 Q1: "按设计无法找回。主密码为唯一解密凭据，系统不
