@@ -2222,6 +2222,25 @@ def main():
         dump = flatten_dump(get_db_dump(driver))
         check("delete: tombstone recorded in IndexedDB meta (manual 3.3)",
               "tombstone:" in dump, dump[-200:])
+        # 设计说明书 3.3 pins the tombstone VALUE as "文档删除时刻 updatedAt" —
+        # src/sync.js keys tombMap on that updatedAt to let the tombstone win
+        # LWW against stale live tapes (用户手册 3.8). The presence check above
+        # flattens key+value into one blob, so a regression writing an empty,
+        # placeholder, or non-ISO value (which would silently break tombstone
+        # LWW dominance) would escape it. Inspect the raw record instead.
+        ts = get_db_dump(driver)
+        tombstones = []
+        for rec in ts.get("meta", []) or []:
+            if isinstance(rec, dict) and str(rec.get("key", "")).startswith("tombstone:"):
+                tombstones.append(rec)
+        iso_ok = any(
+            isinstance(rec.get("value"), str)
+            and re.match(r"^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}", rec.get("value", ""))
+            and str(rec["value"]).endswith("Z")
+            for rec in tombstones
+        )
+        check("delete: tombstone value is the deleted doc's updatedAt ISO timestamp (设计说明书 3.3)",
+              iso_ok, "tombstone records=%r" % [r for r in tombstones])
 
         # reload + re-unlock: the delete must have persisted (AC1 proof), the
         # document stays gone instead of being resurrected from the store
