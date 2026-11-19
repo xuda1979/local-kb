@@ -3894,6 +3894,77 @@ console.log(out.join(" "));
             check("sync: mutual-exchange run completed without error (manual 3.8/Q5)",
                   False, "in-page error: %s" % (_m.get("error"),))
 
+        # ---- 设计说明书 3.7: "若文档已重建则丢弃过期墓碑（防争用复活）" — the
+        # emission-side half of the tombstones riding tapes rule. The earlier
+        # tombstone/resurrect blocks pinned applyTape's *receiver*-side guards
+        # (stale live tapes never resurrect; tombstones LWW on updatedAt); this
+        # block pins localTape's *builder* side (src/sync.js:159-163): after a
+        # doc is deleted and then re-created under the SAME id, the stale
+        # tombstone (earlier updatedAt) must NOT be emitted on the outgoing
+        # tape — its live entry already carries the newer state, and a stale
+        # deleted:true ghost could win an LWW timestamp tie on a peer and
+        # wrongly delete the re-created doc.
+        driver.get(BASE + "/")
+        _recreate = json.loads(json.dumps(driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { createKb, openKb } = await import('/src/factory.js');
+            const { buildTape, applyTapeFile } = await import('/src/syncfile.js');
+            const PW = 'correct horse battery staple';
+            const ad = new IndexedDBBackend('local-kb-scratch-recreate');
+            const ar = await createKb(ad, PW, 'recreate-ws');
+            const ID = 'rec-7e4f';
+            await ar.store.create(ID, 'First Life',
+                        [{ type: 'paragraph', text: 'RECREATE-FIRST-31c9' }]);
+            await ar.store.delete(ID);   // records a tombstone (meta)
+            await ar.store.create(ID, 'Second Life',
+                        [{ type: 'paragraph', text: 'RECREATE-SECOND-9db2' }]); // same id
+            const tape = await buildTape(await ad.getParams(), ad);
+            const forId = tape.entries.filter((e) => e.id === ID);
+            const singleLive = forId.length === 1 && forId[0].deleted === false;
+            const tombInTape = forId.some((e) => e.deleted === true);
+            // A peer that applies the tape must see the re-created doc, never
+            // the delete: the live entry wins and clears the stale tombstone.
+            const pk = new IndexedDBBackend('local-kb-scratch-recreate-peer');
+            await pk.saveParams(await ad.getParams());
+            const pr = await openKb(pk, PW);
+            if (!pr.ok) return cb({ error: 'peer-unlock' });
+            const res = await applyTapeFile(pk, tape);
+            const peerList = await pr.store.list();
+            cb({
+              singleLive, tombInTape,
+              tapeEntriesForId: forId.length,
+              peerSeesRecreated: peerList.length === 1
+                  && peerList[0].id === ID && peerList[0].title === 'Second Life',
+              peerCount: peerList.length,
+              peerTitle: peerList.length ? peerList[0].title : null,
+              applied: res.applied, skipped: res.skipped,
+              error: null,
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """), default=str))
+        _m = _recreate if isinstance(_recreate, dict) else {}
+        check("sync: localTape drops the stale tombstone after a doc is deleted "
+              "then re-created under the same id — exactly one LIVE entry for "
+              "that id rides the outgoing tape, no deleted:true ghost "
+              "(设计说明书 3.7 若文档已重建则丢弃过期墓碑 防争用复活)",
+              _m.get("singleLive") is True and _m.get("tombInTape") is False,
+              "entriesForId=%s tombInTape=%s singleLive=%s"
+              % (_m.get("tapeEntriesForId"), _m.get("tombInTape"),
+                 _m.get("singleLive")))
+        check("sync: applying that tape on a peer reproduces the re-created doc "
+              "and never the delete — peer lists exactly one doc, tagged "
+              "'Second Life' (设计说明书 3.7 防争用复活)",
+              _m.get("peerSeesRecreated") is True,
+              "peer-count=%s peer-title=%s applied=%s skipped=%s"
+              % (_m.get("peerCount"), _m.get("peerTitle"), _m.get("applied"),
+                 _m.get("skipped")))
+        if _m.get("error"):
+            check("sync: delete -> recreate tape pin completed without error "
+                  "(设计说明书 3.7 防争用复活)",
+                  False, "in-page error: %s" % (_m.get("error"),))
+
         # ---- 用户手册 3.2: "页面在指定时间内没有操作（移动鼠标、按键、滚动等）
         # 会自动锁定" — the activity-POSTPONE half. The earlier idle block pinned
         # the lock *firing* after a quiet 3 s window plus auto-save; it never
