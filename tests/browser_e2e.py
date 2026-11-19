@@ -3049,6 +3049,62 @@ console.log(out.join(" "));
         check("manual 2.3/故障 6: without WebCrypto the app crypto refuses (no fallback)",
               _wr.returncode == 0 and "refuse:ok" in _wout, _wout)
 
+        # The static-origin block above left the driver on the killed http.server
+        # page; this probe's origin-relative dynamic imports need a live origin,
+        # so re-anchor onto the demo server first.
+        driver.get(BASE + "/")
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+
+        # ---- 设计说明书 2.2 设计要点 c) "文档密文由该文档 DEK 加密，IV 均为 12
+        # 字节随机数，防重放/重排" + 3.4 edit() "重取文档 → 原 DEK 解封 → 重新
+        # 加密 → 更新" — the STORED doc record's ciphertext IV must change across
+        # a re-save. The manual 2.3 check above proves each crypto.encrypt() call
+        # draws a fresh 12-byte IV, and the AC4/pinned shapes prove every stored
+        # iv field is 12 bytes — but nothing drives a *store re-save* and reads
+        # the raw docs row back: a regression in store.edit() that re-encrypted
+        # with the stored iv (reusing the same (iv, DEK) tuple → same AES-GCM
+        # keystream → replay/reorder risk) or that skipped re-encryption entirely
+        # would pass every current check green. So pin create → edit on a
+        # SELF-CONTAINED scratch vault (its own IndexedDB store; main vault
+        # untouched — the rekey_rot idiom) and compare the raw docs rows: the iv
+        # must change (fresh random IV) while staying 12 bytes, the DEK wrapper
+        # must be REUSED (原 DEK 解封 — only the ciphertext refreshes), and the
+        # edited content must actually decrypt back as the new text.
+        _iv24 = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { createKb } = await import('/src/factory.js');
+            const scratch = new IndexedDBBackend('local-kb-scratch-iv');
+            const { store } = await createKb(scratch, 'fresh iv vault 55aa', 'iv-probe-ws');
+            await store.create('doc-iv', 'Fresh IV Probe',
+                               [{ type: 'paragraph', text: 'first generation' }]);
+            const first = await scratch.getDoc('doc-iv');
+            const dekBefore = first.dekIv + '|' + first.dekData;
+            const ivBefore = first.iv;
+            await store.edit('doc-iv', 'Fresh IV Probe',
+                              [{ type: 'paragraph', text: 'second generation' }]);
+            const second = await scratch.getDoc('doc-iv');
+            const b64len = (s) => Math.floor(((s || '').replace(/=+$/, '')).length * 3 / 4);
+            const got = await store.get('doc-iv');
+            return cb({
+              changed: ivBefore !== second.iv,
+              iv12: b64len(ivBefore) === 12 && b64len(second.iv) === 12,
+              dekSame: dekBefore === (second.dekIv + '|' + second.dekData),
+              docGood: !!(got && got.blocks && got.blocks[0] &&
+                          got.blocks[0].text === 'second generation'),
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """)
+        check("store: re-save issues a fresh ciphertext IV, never reusing the stored one (设计说明书 2.2 设计要点 c 防重放/重排)",
+              isinstance(_iv24, dict) and "error" not in _iv24 and
+              _iv24.get("changed") is True and _iv24.get("iv12") is True,
+              _iv24)
+        check("store: edit re-encrypts under the original DEK, content refreshes (设计说明书 3.4 原 DEK 解封 → 重新加密)",
+              isinstance(_iv24, dict) and "error" not in _iv24 and
+              _iv24.get("dekSame") is True and _iv24.get("docGood") is True,
+              _iv24)
+
         # ---- 用户手册 2.1 (lines 55-56) + Q2 (line 272): "服务端仅负责文件
         # 传输，不存储任何业务数据" / "演示服务器仅提供静态文件传输服务，不保存
         # 业务数据" — pin the shipped demo server's statelessness on the wire:
