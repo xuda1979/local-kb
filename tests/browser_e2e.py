@@ -3965,6 +3965,91 @@ console.log(out.join(" "));
                   "(设计说明书 3.7 防争用复活)",
                   False, "in-page error: %s" % (_m.get("error"),))
 
+        # ---- 用户手册 2.1 "不同机器须用相同名称与主密码才能解锁同一工作区，跨机器
+        # 同步/恢复需保持名称一致" — the workspace name is an HKDF namespace input
+        # (src/workspace.js:28 createWorkspace / :52 unlockWorkspace derive the
+        # workspace key with info = "local-kb/ws:" + wsName), so a DIFFERENT name
+        # under the SAME password derives a different key and must fail the
+        # verifier gate. The earlier 3.1 HKDF block (line 838-861) proved only
+        # that the derived-key *bytes* differ; this block pins the end-to-end
+        # consequence: unlockWorkspace AND openKb refuse the same vault under a
+        # different name, and no document data is reachable under the wrong name.
+        driver.get(BASE + "/")
+        _namegate = json.loads(json.dumps(driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { createKb, openKb } = await import('/src/factory.js');
+            const { unlockWorkspace } = await import('/src/workspace.js');
+            const { buildTape, applyTapeFile } = await import('/src/syncfile.js');
+            const PW = 'correct horse battery staple';
+            const ad = new IndexedDBBackend('local-kb-scratch-namegate');
+            const ar = await createKb(ad, PW, 'namegate-ws');
+            await ar.store.create('ng-01', 'Name Gate Doc',
+                        [{ type: 'paragraph', text: 'NAMEGATE-7b2e' }]);
+            const params = await ad.getParams();
+            // (a) positive control: SAME password + SAME name unlocks fine.
+            const okSameName = (await unlockWorkspace(params, PW)).ok;
+            // (b) the pin: SAME password/params, DIFFERENT name -> the derived
+            // key changes (HKDF namespace), so verifier AEAD decrypt fails.
+            const bad = await unlockWorkspace({ ...params, name: 'namegate-ws-x' }, PW);
+            const okWrongName = bad.ok;
+            // (c) ship the SAME encrypted vault (params + doc ciphertext via the
+            // normal sync tape) to two peers: one carrying a DIFFERENT name, one
+            // the correct name. The wrong-named peer — even with the right
+            // password — must fail the verifier gate and reach zero documents;
+            // the correctly-named peer opens the identical copy and lists the doc.
+            const tape = await buildTape(params, ad);
+            const pkBad = new IndexedDBBackend('local-kb-scratch-namegate-peerbad');
+            await pkBad.saveParams({ ...params, name: 'namegate-ws-x' });
+            await applyTapeFile(pkBad, tape);
+            const prBad = await openKb(pkBad, PW);
+            const docUnderWrongName = prBad.ok ? (await prBad.store.list()).length : -1;
+            const pkGood = new IndexedDBBackend('local-kb-scratch-namegate-peergood');
+            await pkGood.saveParams(params);
+            await applyTapeFile(pkGood, tape);
+            const prGood = await openKb(pkGood, PW);
+            const goodList = prGood.ok ? await prGood.store.list() : [];
+            cb({
+              error: null,
+              paramsName: params.name,
+              okSameName,
+              okWrongName,
+              wrongNameError: bad.error,
+              docUnderWrongName,
+              goodOpens: prGood.ok,
+              goodDocCount: goodList.length,
+              goodDocId: goodList.length ? goodList[0].id : null,
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """), default=str))
+        _mg = _namegate if isinstance(_namegate, dict) else {}
+        check("manual 2.1: SAME password unlocks with the vault's own name — "
+              "verifier authenticates (control for the name gate)",
+              _mg.get("okSameName") is True,
+              "same-name-ok=%s params.name=%s"
+              % (_mg.get("okSameName"), _mg.get("paramsName")))
+        check("manual 2.1: SAME password + DIFFERENT workspace name is REFUSED "
+              "against the SAME vault — the name is an HKDF key input, so the "
+              "verifier decrypt fails (用户手册: 不同机器须用相同名称与主密码才能解锁同一工作区 "
+              "/ 设计说明书 3.1 deriveWorkspaceKey info = \"local-kb/ws:\" + wsName)",
+              _mg.get("okWrongName") is False,
+              "wrong-name-ok=%s err=%s" % (_mg.get("okWrongName"),
+                                            _mg.get("wrongNameError")))
+        check("manual 2.1: openKb under the wrong name cannot reach the vault's "
+              "documents, while the correctly-named peer opens and lists exactly "
+              "the one doc — name drift means zero data access (跨机器须保持名称一致)",
+              _mg.get("okWrongName") is False
+              and _mg.get("docUnderWrongName") == -1
+              and _mg.get("goodOpens") is True and _mg.get("goodDocCount") == 1
+              and _mg.get("goodDocId") == 'ng-01',
+              "wrong-name-docs=%s good-open=%s good-docs=%s good-id=%s"
+              % (_mg.get("docUnderWrongName"), _mg.get("goodOpens"),
+                 _mg.get("goodDocCount"), _mg.get("goodDocId")))
+        if _mg.get("error"):
+            check("manual 2.1: workspace-name gate probe completed without error",
+                  False, "in-page error: %s" % (_mg.get("error"),))
+
         # ---- 用户手册 3.2: "页面在指定时间内没有操作（移动鼠标、按键、滚动等）
         # 会自动锁定" — the activity-POSTPONE half. The earlier idle block pinned
         # the lock *firing* after a quiet 3 s window plus auto-save; it never
