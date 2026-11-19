@@ -3882,7 +3882,47 @@ console.log(out.join(" "));
                 const tapeBlobEqDocs = liveE.every((e) => kbById[e.id]
                   && ['dekIv', 'dekData', 'iv', 'data', 'createdAt', 'updatedAt']
                      .every((f) => kbById[e.id][f] === e[f]));
+                // 设计说明书 3.3: the docs store is a dumb row layer — the
+                // tombstone judgment lives ONLY in the consumers (bak.js
+                // importKB / sync.js applyTape), NOT in the docs store.
+                // putDoc upserts in place; getDoc/listDocs never consult the
+                // tombstone meta store; deleteDoc clears the row while the
+                // tombstone survives for a consumer to judge. Pinned here on
+                // public/idb.js (3.9: IndexedDBBackend implements the same
+                // adapter interface as SQLiteBackend; node-side db.js verified
+                // equivalent). Uses doc ids distinct from the tape fixture
+                // above so the .kb/.kbsync snapshots the 3.7 checks audit stay
+                // untouched.
+                await db.putDoc({ id: 'rowop-d1', dekIv: 'W1', dekData: 'WD1',
+                  iv: 'Iv1', data: 'Data1', createdAt: 'rowop-t0',
+                  updatedAt: 'rowop-t1' });
+                await db.putDoc({ id: 'rowop-d1', dekIv: 'W2', dekData: 'WD2',
+                  iv: 'Iv2', data: 'Data2', createdAt: 'rowop-t0',
+                  updatedAt: 'rowop-t2' });
+                const rowopUpsertCount =
+                  (await db.listDocs()).filter((r) => r.id === 'rowop-d1').length;
+                const rowopLatest = await db.getDoc('rowop-d1');
+                await db.markDeleted('rowop-d1', 'rowop-t2');
+                const rowopStillListed =
+                  (await db.listDocs()).some((r) => r.id === 'rowop-d1');
+                const rowopStillReadable = await db.getDoc('rowop-d1');
+                await db.deleteDoc('rowop-d1');
+                const rowopGone = await db.getDoc('rowop-d1');
+                const rowopTombSurvives = (await db.listTombstones())
+                  .some((t) => t.id === 'rowop-d1' && t.updatedAt === 'rowop-t2');
+                const rowopTombNotInDocs =
+                  !(await db.listDocs()).some((r) => r.id === 'rowop-d1');
                 return cb({
+                  rowop: {
+                    upsertCount: rowopUpsertCount,
+                    latestUpdatedAt: rowopLatest && rowopLatest.updatedAt,
+                    latestDekData: rowopLatest && rowopLatest.dekData,
+                    stillListedAfterTomb: rowopStillListed,
+                    stillReadableAfterTomb: rowopStillReadable && rowopStillReadable.updatedAt,
+                    goneAfterDelete: rowopGone === null,
+                    tombSurvives: rowopTombSurvives,
+                    tombNotInDocs: rowopTombNotInDocs,
+                  },
                   kb: kbText,
                   tape: tapeText,
                   liveDocs: rows.length,
@@ -4065,6 +4105,37 @@ console.log(out.join(" "));
                   "blobEqDocs=%s liveFull=%s deadSkeleton=%s"
                   % (_fmt19.get("tapeBlobEqDocs"), _fmt19.get("tapeLiveFull"),
                      _fmt19.get("tapeDeadSkeleton")))
+            # ---- 设计说明书 3.3: "docs ... putDoc(upsert) ...（纯行操作，
+            # getDoc 无墓碑判定）". The docs store is a dumb row layer — putDoc
+            # upserts in place (a second put for the same id overwrites, it does
+            # not duplicate); getDoc/listDocs never consult the tombstone meta
+            # store (a row is still listed and readable after markDeleted); and
+            # deleteDoc clears exactly the row while the tombstone survives for
+            # a CONSUMER (bak.js importKB / sync.js applyTape) to judge. The
+            # tombstone judgment therefore cannot live in the docs layer.
+            _rowop = _fmt19.get("rowop") or {}
+            check("manual 4.1/format: docs.putDoc is an upsert — a second write "
+                  "to the same id OVERWRITES in place, never duplicating the row "
+                  "(设计说明书 3.3 putDoc(upsert) 纯行操作)",
+                  int(_rowop.get("upsertCount", -1)) == 1
+                  and str(_rowop.get("latestUpdatedAt")) == "rowop-t2"
+                  and str(_rowop.get("latestDekData")) == "WD2",
+                  str(_rowop)[:200])
+            check("manual 4.1/format: docs.getDoc/listDocs render NO tombstone "
+                  "judgment — the row is still listed and readable after "
+                  "markDeleted records its tombstone "
+                  "(设计说明书 3.3 getDoc 无墓碑判定)",
+                  _rowop.get("stillListedAfterTomb") is True
+                  and str(_rowop.get("stillReadableAfterTomb")) == "rowop-t2",
+                  str(_rowop)[:200])
+            check("manual 4.1/format: docs.deleteDoc clears exactly the row while "
+                  "the tombstone survives in the meta store for consumers to "
+                  "judge — delete-and-tombstone are two separate, composable "
+                  "operations (设计说明书 3.3 墓碑与行分离 / 3.7 墓碑消费方)",
+                  _rowop.get("goneAfterDelete") is True
+                  and _rowop.get("tombSurvives") is True
+                  and _rowop.get("tombNotInDocs") is True,
+                  str(_rowop)[:200])
         finally:
             _d19.quit()
 
