@@ -128,6 +128,19 @@ def flatten_dump(d):
     return "\n".join(parts)
 
 
+def canonical_dump(d):
+    """Deterministic text signature of a db dump (order-independent)."""
+    return json.dumps(
+        {
+            name: sorted(
+                (json.dumps(r, sort_keys=True) for r in (recs or []))
+            )
+            for name, recs in d.items()
+        },
+        sort_keys=True,
+    )
+
+
 def main():
     print("==> launching Firefox (headless) against", BASE)
     opts = Options()
@@ -266,6 +279,17 @@ def main():
         wait_for(driver, EC.presence_of_element_located((By.ID, "view-unlock")), 12)
         check("fresh page shows locked state (AC1 prerequisite)", True)
 
+        # --- fingerprint the on-disk vault before any failed unlock. 设计说明
+        # 书 3.10 a pins "错误密码：verifier 校验失败立即中止，不产生任何写
+        # 操作" (用户手册 3.2 / 5.1 故障 1 "重复失败不会损害数据"): a wrong
+        # password must be rejected at the AEAD verifier with zero storage
+        # side effects — no params rewrite, no meta noise, no orphan doc, no
+        # tombstone. The AC3 denials below only assert the message + lock
+        # screen, so a failure-path write would pass every existing check.
+        pre_dump = get_db_dump(driver)
+        pre_sig = canonical_dump(pre_dump)
+        pre_marker_insertion = "local-kb-pw" not in flatten_dump(pre_dump)
+
         # wrong password: still locked
         pw = driver.find_element(By.ID, "pw")
         pw.send_keys("definitively-wrong-password")
@@ -291,6 +315,22 @@ def main():
         check("AC3: repeated failures keep the lock screen up",
               driver.find_element(By.ID, "view-app").get_attribute("style").find("block") == -1,
               driver.find_element(By.ID, "view-app").get_attribute("style"))
+
+        # 设计说明书 3.10 a: even after three failed unlock attempts the
+        # IndexedDB dump must be byte-for-byte identical to the pre-failure
+        # fingerprint — a failed unlock is a pure read that leaves the vault
+        # untouched. sampling a fresh dump also proves the attempts did not
+        # write session-scoped state (e.g. a stale master password) into the
+        # meta store.
+        post_dump = get_db_dump(driver)
+        post_sig = canonical_dump(post_dump)
+        check("AC3: failed unlock left the vault byte-identical (设计说明书 3.10 a 错误密码零写入)",
+              post_sig == pre_sig,
+              "pre=%(pre)s post=%(post)s" % {"pre": (pre_sig or "")[:200],
+                                             "post": (post_sig or "")[:200]})
+        check("AC3: failed unlock wrote no session markers (设计说明书 3.10 a 错误密码零写入)",
+              pre_marker_insertion,
+              flatten_dump(post_dump)[:120])
 
         # correct password: opens and shows doc
         pw.clear()
