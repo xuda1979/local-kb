@@ -425,6 +425,7 @@ def main():
             '\n1. first\n2. second\n1) one\n2) two\n'
             '\n> quote\n>> nested\n'
             '\n[data](data:image/png;base64,AAAA)'
+            '\n[vb](vbscript:msgbox(1))'
             '\n[ok](https://example.com/path)'
             '\n[http](http://example.com/plain)'
             '\n[mail](mailto:a@b.com)'
@@ -515,6 +516,14 @@ def main():
               and "<blockquote>&gt; nested</blockquote>" in inner, inner[:300])
         check("preview masks data: links as inert text",
               "<em>data</em>" in inner and "data:image/png" not in inner, inner[:300])
+        # markdown.js:22 names vbscript: alongside javascript:/data: as degrading
+        # to an inert emphasized label, but the existing pins drive only the
+        # javascript: (line 488) and data: legs. A SAFE_URL regression that made a
+        # third-party scheme (vbscript:) pass — e.g. a widened allowlist, or a
+        # renderInline branch that stopped degrading unknown schemes — would
+        # escape every current check. Pin the vbscript: leg exactly like data:.
+        check("preview masks vbscript: links as inert text (设计说明书 3.8)",
+              "<em>vb</em>" in inner and "vbscript:" not in inner, inner[:300])
         # Manual 3.5 预览 promises "自动屏蔽 javascript:、data: 等危险链接"
         # — the negatives above (js/data degrade to <em>) are pinned, but nothing
         # pins the allowlist positive: a SAFE_URL (markdown.js:23) regression
