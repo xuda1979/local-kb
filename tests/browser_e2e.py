@@ -2491,6 +2491,68 @@ def main():
         wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
         wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
 
+        # ---- manual Lock button: dirty-editor confirm gate
+        # (用户手册 3.3: "未保存的修改在切换文档或离开页面时会收到提醒，避免丢失";
+        #  设计说明书 3.9: main.js 状态机 markDirty/clearDirty 未保存提醒). The
+        # switch-doc guard is pinned above; THIS is the Lock-button path. main.js
+        # `lock()` prompts "Discard unsaved changes and lock?" when the editor is
+        # dirty; dismissing aborts the lock entirely — view-app stays up, the
+        # unsaved edit stays in the editor, and the session password is kept.
+        # Every other btn-lock click in this suite locks a CLEAN editor, so this
+        # dirty path (deliberately split from the idle auto-lock at main.js:381)
+        # is the missing browser-side evidence for the manual lock guard.
+        # Re-unlock starts with no doc open (state.current is null — enterApp
+        # only refreshes the list), so open the main doc first or markDirty
+        # no-ops and lock() never sees a dirty state.
+        main_row = next(r for r in driver.find_elements(By.CSS_SELECTOR, "#doc-list .doc-row")
+                        if KNOWN_TITLE in (r.text or ""))
+        main_row.click()
+        time.sleep(1.0)
+        area = driver.find_element(By.ID, "editor-area")
+        area.send_keys("\nLOCK-GUARD-PROOF")
+        time.sleep(0.3)
+        lock_guard_dirty = "edited" in driver.find_element(By.ID, "doc-meta").text.lower()
+        check("lock-guard: typing marks the doc dirty before locking (manual 3.3)",
+              lock_guard_dirty, driver.find_element(By.ID, "doc-meta").text[-60:])
+        driver.find_element(By.ID, "btn-lock").click()
+        time.sleep(0.6)
+        lock_alert = driver.switch_to.alert
+        try:
+            lock_alert_text = lock_alert.text or ""
+        except Exception:
+            lock_alert_text = ""
+        check("lock-guard: manual Lock prompts to discard unsaved edits (manual 3.3 pin)",
+              "Discard unsaved changes" in lock_alert_text, lock_alert_text)
+        lock_alert.dismiss()
+        time.sleep(0.4)
+        lg_title = driver.find_element(By.ID, "editor-title").get_attribute("value")
+        lg_area = driver.find_element(By.ID, "editor-area").get_attribute("value")
+        lg_pw = driver.execute_script("return sessionStorage.getItem('local-kb-pw');")
+        check("lock-guard: dismissing the prompt aborts the lock and keeps the edit",
+              lg_pw is not None and "LOCK-GUARD-PROOF" in lg_area and KNOWN_TITLE in lg_title,
+              (lg_title, lg_area[-80:], "pw" + (" set" if lg_pw else " null")))
+        driver.find_element(By.ID, "btn-lock").click()
+        time.sleep(0.6)
+        lock_alert2 = driver.switch_to.alert
+        lock_alert2.accept()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
+        lg_pw_after = driver.execute_script("return sessionStorage.getItem('local-kb-pw');")
+        lg_editor_after = driver.find_element(By.ID, "editor-area").get_attribute("value")
+        lg_view = driver.execute_script("return [].map.call(document.querySelectorAll('#view-unlock, #view-app'), "
+                                        "function (n) { return n.id + '=' + (n.style.display || getComputedStyle(n).display); }).join(' ');")
+        check("lock-guard: accepting discards the edit, drops the pw, and leaves the app locked",
+              lg_pw_after is None and lg_editor_after == "" and lg_view
+              and "view-unlock=block" in lg_view and "view-app=none" in lg_view,
+              (lg_pw_after, repr(lg_editor_after), lg_view))
+
+        # re-unlock to restore the app state the delete block expects
+        pw = driver.find_element(By.ID, "pw")
+        pw.clear()
+        pw.send_keys(NEW_PW)
+        driver.find_element(By.ID, "btn-unlock").click()
+        wait_for(driver, EC.visibility_of_element_located((By.ID, "view-app")), 12)
+        wait_for(driver, EC.presence_of_element_located((By.CSS_SELECTOR, "#doc-list .doc-row")), 12)
+
         # IndexedDB must hold ciphertext only, with no new-password plaintext
         dump = flatten_dump(get_db_dump(driver))
         for needle in [NEW_PW, "correct horse battery staple"]:
