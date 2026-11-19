@@ -3157,10 +3157,26 @@ console.log(out.join(" "));
                   await decrypt(hA, recs[idB].iv, recs[idB].data);
                   cross = 'wrong-key-decrypted';
                 } catch (e) { cross = 'rejected'; }
+                // 设计说明书 3.10 b: 篡改检测 — flip one byte of doc B's stored
+                // ciphertext and decrypt with the CORRECT (B) DEK; the AEAD
+                // authentication tag must diagnose the mutation as tampering.
+                // (The wrong-key leg is the cross probe above; this is the
+                // tampered-ciphertext leg. Neither is pinned at the browser
+                // level today — a decrypt path that swallowed GCM tag failures
+                // would return garbage plaintext instead of throwing.)
+                const _bRaw = fromBase64(recs[idB].data);
+                const _bTampered = new Uint8Array(_bRaw);
+                _bTampered[0] ^= 0x01;   // flip one bit in the ciphertext blob
+                let tamper = null;
+                try {
+                  const hB = await importAesGcm(fromBase64(recs[idB].dek));
+                  await decrypt(hB, recs[idB].iv, toBase64(_bTampered));
+                  tamper = 'tampered-decrypted';
+                } catch (e) { tamper = 'rejected'; }
                 return cb({ idA, idB, dekA: recs[idA].dek, dekB: recs[idB].dek,
                             plainA: recs[idA].plain, plainB: recs[idB].plain,
                             dekLenA: recs[idA].dekLen, dekLenB: recs[idB].dekLen,
-                            cross });
+                            cross, tamper });
               })().catch((e) => cb({ error: String(e) }));
             """)
             _dk17 = json.loads(json.dumps(_dek17))
@@ -3196,6 +3212,17 @@ console.log(out.join(" "));
             check("manual 4.2: a doc's ciphertext rejects decryption under the " +
                   "other document's DEK (GCM tag mismatch)",
                   _dk17.get("cross") == "rejected", str(_dk17.get("cross")) or "no error")
+            # 设计说明书 3.10 b) 篡改检测: "解密任意层失败均由 AEAD 认证标签确诊
+            # 为篡改/错密"。The wrong-key half (错密) is pinned by the cross probe
+            # above, but nothing at the browser level pins the tampered-ciphertext
+            # half (篡改) — a decrypt path that dropped GCM-auth-tag verification
+            # would return corrupted plaintext instead of throwing, yet still pass
+            # every existing check (解锁/解密均用未篡改数据). A single flipped bit
+            # in doc B's stored ciphertext must be rejected under the CORRECT DEK.
+            check("manual 4.2: a one-bit tampered ciphertext is rejected by the " +
+                  "AEAD auth tag (设计说明书 3.10 b 篡改检测)",
+                  _dk17.get("tamper") == "rejected",
+                  str(_dk17.get("tamper")) or "no error")
         finally:
             _d17.quit()
 
