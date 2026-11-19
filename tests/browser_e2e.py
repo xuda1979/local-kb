@@ -2398,6 +2398,104 @@ def main():
               "ok=%s keylen=%s err=%s" %
               (ws35.get("rightOk"), ws35.get("rightKeyLen"), ws35.get("error")))
 
+        # ---- 设计说明书 3.1 (crypto.js 模块函数): "toBase64/fromBase64：URL 安全
+        # base64（-/_，去除填充）编解码" — the shipping encoder must emit the
+        # URL-safe alphabet ('-' for 62, '_' for 63) with NO trailing '=' padding.
+        # The existing pins never assert these traits: taste/base64v unit tests
+        # only round-trip bytes, and the manual-4.1 cross-decode block re-appends
+        # '=' on the Python side before decoding — so a regression to the
+        # standard base64 alphabet or padded output would escape undetected
+        # while silently breaking cross-machine .kb/.kbsync compatibility.
+        # Fixed vectors deliberately span every padding class AND the two bytes
+        # that collide with '+' (0xfb) and '/' (0xff): under the standard
+        # alphabet 0xfb 0xef 0xbe is '++++' and 0xff 0xff 0xff is '////', so the
+        # URL-safe contract is exactly e==='----' / e==='____'. fromBase64 must
+        # additionally accept the unpadded STANDARD alphabet ('++++'/'////') and
+        # throw on non-base64 garbage (no silent mis-decode). Pure module
+        # import, no UI interaction, no scratch vault.
+        _b64r36_probe = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { toBase64, fromBase64 } = await import('/src/crypto.js');
+            const hex = (u8) => [...new Uint8Array(u8)]
+              .map((b) => b.toString(16).padStart(2, '0')).join('');
+            const cases = [
+              { name: 'http',    bytes: [104, 116, 116, 112], expect: 'aHR0cA' },
+              { name: 'slashes', bytes: [251, 239, 190],       expect: '----' },
+              { name: 'unders',  bytes: [255, 255, 255],       expect: '____' },
+              { name: 'rem2',    bytes: [251, 239],            expect: '--8' },
+              { name: 'rem1',    bytes: [251],                 expect: '-w' },
+              { name: 'rem1b',   bytes: [252],                 expect: '_A' },
+              { name: 'six',     bytes: [0, 1, 2, 3, 4, 5],    expect: 'AAECAwQF' },
+            ];
+            const encoded = {};
+            const fixed = cases.every((c) => {
+              const e = toBase64(new Uint8Array(c.bytes));
+              encoded[c.name] = e;
+              return e === c.expect
+                && hex(fromBase64(e)) === hex(new Uint8Array(c.bytes));
+            });
+            const joined = cases.map((c) => encoded[c.name] || '').join('');
+            const urlSafeChars = !/[+/=]/.test(joined);
+            const alphabetOnly = cases.every(
+              (c) => /^[A-Za-z0-9_-]+$/.test(encoded[c.name] || ''));
+            const stdOk =
+              hex(fromBase64('++++')) === 'fbefbe'
+              && hex(fromBase64('////')) === 'ffffff';
+            let junkThrows = false;
+            try { fromBase64('@@@!!'); } catch (e) { junkThrows = true; }
+            return cb({ fixed, urlSafeChars, alphabetOnly, stdOk, junkThrows,
+                        encoded });
+          })().catch((e) => cb({ error: String(e) }));
+        """)
+        _b64r36 = json.loads(json.dumps(_b64r36_probe))
+
+        import base64 as _b64_36
+
+        def _b64u36(s):
+            # Independent Python cross-check: stdlib url-safe decode with the
+            # app's unpadded alphabet (NOT app-self-agreement).
+            try:
+                return _b64_36.urlsafe_b64decode(str(s) + "=" * (-len(str(s)) % 4))
+            except Exception:
+                return None
+
+        _py_ok_vec = (
+            _b64u36("aHR0cA") == b"http"
+            and _b64u36("----") == bytes([251, 239, 190])
+            and _b64u36("____") == bytes([255, 255, 255])
+            and _b64u36("--8") == bytes([251, 239])
+            and _b64u36("-w") == bytes([251])
+            and _b64u36("_A") == bytes([252])
+            and _b64u36("AAECAwQF") == bytes([0, 1, 2, 3, 4, 5])
+        )
+        _py_enc36 = (_b64r36.get("encoded") or {})
+        _py_enc_same = all(
+            _py_enc36.get(n) == e for n, e in {
+                "http": "aHR0cA", "slashes": "----", "unders": "____",
+                "rem2": "--8", "rem1": "-w", "rem1b": "_A", "six": "AAECAwQF",
+            }.items())
+
+        check("设计说明书 3.1: base64url encoder emits -/_ with no +/ and no "
+              "trailing '=' (aHR0cA/----/____/--8/-w/_A/AAECAwQF)",
+              _b64r36.get("urlSafeChars") is True
+              and _b64r36.get("alphabetOnly") is True,
+              _b64r36)
+        check("设计说明书 3.1: toBase64 maps the exact fixed vectors (0xfbefbe is "
+              "'++++' in standard base64 but must be '----'; 0xffffff '////' "
+              "must be '____') and fromBase64 round-trips byte-exactly",
+              _b64r36.get("fixed") is True, _b64r36)
+        check("设计说明书 3.1: fromBase64 accepts the unpadded STANDARD alphabet "
+              "too (++++///// decode to the same bytes)",
+              _b64r36.get("stdOk") is True, _b64r36)
+        check("设计说明书 3.1: fromBase64 rejects non-alphabet input with an "
+              "exception (no silent mis-decode)",
+              _b64r36.get("junkThrows") is True, _b64r36)
+        check("设计说明书 3.1: browser encoder strings match an independent Python "
+              "urlsafe-b64 decode of the same vectors (cross-implementation)",
+              _py_ok_vec is True and _py_enc_same is True,
+              "vec=%s enc=%s" % (_py_ok_vec, _py_enc_same))
+
         # ---- Lock: drop the master password from the session and clear memory
         driver.find_element(By.ID, "btn-lock").click()
         wait_for(driver, EC.visibility_of_element_located((By.ID, "view-unlock")), 12)
