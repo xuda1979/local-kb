@@ -1959,6 +1959,127 @@ def main():
               (rk2.get("failDenied"), rk2.get("failDekUntouched"), rk2.get("failParamsUntouched"),
                rk2.get("failOldAuths"), rk2.get("failNewRefused"), rk2.get("failWrongDenied")))
 
+        # ---- 设计说明书 3.6 step 5 "重复改密稳定": changeMasterPassword must be
+        # STABLE under REPEATED rotation, not just a single OLD->NEW pass. A second
+        # consecutive change — unlocked with the first-rotation password — has to
+        # re-wrap every DEK again, re-derive the verifier, leave the doc content
+        # intact under the FINAL key, and refuse BOTH prior passwords afterwards.
+        # Also the workspace salt — the public identity both rekey.js:8-12 and
+        # bak.js importKB treat as definitive ("the salt is the public workspace
+        # identity (the .kbsync gate), so re-keying keeps peers/backups
+        # recognizable") — must be byte-identical across every rotation; otherwise
+        # a rotated vault would be an unrecognizable stranger to its own peers.
+        # All proven on a SELF-CONTAINED scratch vault ('local-kb-scratch-rekey2');
+        # the main vault stays under NEW_PW for the rest of the run.
+        rekey_again = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { IndexedDBBackend } = await import('/idb.js');
+            const { createKb } = await import('/src/factory.js');
+            const { changeMasterPassword } = await import('/src/rekey.js');
+            const { unlockWorkspace } = await import('/src/workspace.js');
+            const { deriveKeyBytes, deriveWorkspaceKey, importAesGcm, decrypt, utf8d } =
+              await import('/src/crypto.js');
+            const { deserializeDoc } = await import('/src/docmodel.js');
+            const P1 = 'repeat rekey pw 101';
+            const P2 = 'repeat rekey pw 202';
+            const P3 = 'repeat rekey pw 303';
+            const MARK = 'REKEY-AGAIN-PROOF-9c41';
+            const scratch = new IndexedDBBackend('local-kb-scratch-rekey2');
+            const { store } = await createKb(scratch, P1, 'repeat-vault');
+            await store.create('doc-rr', 'Repeat Rekey',
+                               [{ type: 'paragraph', text: 'first ' + MARK }]);
+            const salt0 = (await scratch.getParams()).salt;
+            // Rotation 1: P1 -> P2.
+            const rk1 = await changeMasterPassword(scratch, P1, P2);
+            const p1 = await scratch.getParams();
+            const after1 = await scratch.getDoc('doc-rr');
+            // Control: the P2-derived key opens the once-rotated wrapper.
+            const raw2 = new Uint8Array(await deriveKeyBytes(P2, p1.salt, p1.iterations));
+            const ws2 = new Uint8Array(await deriveWorkspaceKey(raw2, p1.name));
+            const h2 = await importAesGcm(ws2);
+            let open2 = null;
+            try { open2 = await decrypt(h2, after1.dekIv, after1.dekData); } catch (e) {}
+            let docGood1 = false;
+            if (open2) {
+              const dekH = await importAesGcm(open2);
+              try {
+                const d = deserializeDoc(utf8d.decode(
+                  await decrypt(dekH, after1.iv, after1.data)));
+                docGood1 = d.title === 'Repeat Rekey' &&
+                  (d.blocks || []).some((b) => (b.text || '').includes(MARK));
+              } catch (e) {}
+            }
+            // Rotation 2 (the pin): unlocked with P2, the CURRENT one, set P3.
+            // "重复改密稳定" means this succeeds cleanly and P2 immediately dies.
+            const rk2 = await changeMasterPassword(scratch, P2, P3);
+            const p2 = await scratch.getParams();
+            const after2 = await scratch.getDoc('doc-rr');
+            const raw3 = new Uint8Array(await deriveKeyBytes(P3, p2.salt, p2.iterations));
+            const ws3 = new Uint8Array(await deriveWorkspaceKey(raw3, p2.name));
+            const h3 = await importAesGcm(ws3);
+            let open3 = null;
+            try { open3 = await decrypt(h3, after2.dekIv, after2.dekData); } catch (e) {}
+            let docGood2 = false;
+            if (open3) {
+              const dekH = await importAesGcm(open3);
+              try {
+                const d = deserializeDoc(utf8d.decode(
+                  await decrypt(dekH, after2.iv, after2.data)));
+                docGood2 = d.title === 'Repeat Rekey' &&
+                  (d.blocks || []).some((b) => (b.text || '').includes(MARK));
+              } catch (e) {}
+            }
+            const p3Auth = await unlockWorkspace(p2, P3);
+            const p2Auth = await unlockWorkspace(p2, P2);
+            const p1Auth = await unlockWorkspace(p2, P1);
+            return cb({
+              rk1Ok: !!(rk1 && rk1.ok), rk1Wrapped: (rk1 && rk1.rewrapped) || 0,
+              rk2Ok: !!(rk2 && rk2.ok), rk2Wrapped: (rk2 && rk2.rewrapped) || 0,
+              dekRewrappedAgain: after2.dekIv !== after1.dekIv ||
+                                 after2.dekData !== after1.dekData,
+              verifierRotatedAgain: p2.verifier.iv !== p1.verifier.iv ||
+                                    p2.verifier.data !== p1.verifier.data,
+              saltPreserved: p1.salt === salt0 && p2.salt === salt0,
+              p2OpensAfter1: !!open2, docGood1,
+              p3OpensAfter2: !!open3, docGood2,
+              p3AuthOk: p3Auth.ok === true,
+              p2Denied: p2Auth.ok === false,
+              p1Denied: p1Auth.ok === false,
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """)
+        rk3 = json.loads(json.dumps(rekey_again))
+        check("re-key again: first rotation completes and the first-intermediate "
+              "key opens the once-rewrapped DEK (control)",
+              rk3.get("rk1Ok") is True and rk3.get("rk1Wrapped") >= 1 and
+              rk3.get("p2OpensAfter1") is True and rk3.get("docGood1") is True,
+              "wrapped=%s opens=%s doc=%s" %
+              (rk3.get("rk1Wrapped"), rk3.get("p2OpensAfter1"), rk3.get("docGood1")))
+        check("re-key again: a SECOND consecutive rotation re-wraps every DEK and "
+              "re-derives the verifier (设计说明书 3.6 重复改密稳定)",
+              rk3.get("rk2Ok") is True and rk3.get("rk2Wrapped") >= 1 and
+              rk3.get("dekRewrappedAgain") is True and
+              rk3.get("verifierRotatedAgain") is True,
+              "wrapped=%s dek-again=%s verifier-again=%s" %
+              (rk3.get("rk2Wrapped"), rk3.get("dekRewrappedAgain"),
+               rk3.get("verifierRotatedAgain")))
+        check("re-key again: after two rotations only the FINAL password "
+              "authenticates — both earlier passwords are refused "
+              "(设计说明书 3.6 原子收尾/旧密码即刻失效)",
+              rk3.get("p3AuthOk") is True and rk3.get("p2Denied") is True and
+              rk3.get("p1Denied") is True,
+              "p3-auth=%s p2-denied=%s p1-denied=%s" %
+              (rk3.get("p3AuthOk"), rk3.get("p2Denied"), rk3.get("p1Denied")))
+        check("re-key again: doc content intact under the final key after two "
+              "rotations (用户手册 3.9 文档完好无损)",
+              rk3.get("p3OpensAfter2") is True and rk3.get("docGood2") is True,
+              "opens=%s doc=%s" % (rk3.get("p3OpensAfter2"), rk3.get("docGood2")))
+        check("re-key again: workspace salt (public identity) unchanged through "
+              "repeated rotations — peers/backups stay recognizable "
+              "(设计说明书 3.5 importKB 盐值校验 / rekey.js)",
+              rk3.get("saltPreserved") is True, "salt=%s" % (rk3.get("saltPreserved"),))
+
         # ---- FAQ Q1 + 3.1 安全提示: no recovery, and nothing recoverable is
         # stored (manual 5.3 Q1: "按设计无法找回。主密码为唯一解密凭据，系统不
         # 保存任何可恢复信息"; 3.1: "系统不会也不能提供找回功能"). Two
