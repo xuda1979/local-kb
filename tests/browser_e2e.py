@@ -2080,6 +2080,75 @@ def main():
               "(设计说明书 3.5 importKB 盐值校验 / rekey.js)",
               rk3.get("saltPreserved") is True, "salt=%s" % (rk3.get("saltPreserved"),))
 
+        # ---- 设计说明书 3.8 block model: textToBlocks scans the document line
+        # by line (按行扫描) and cuts SEPARATE paragraph blocks wherever a blank
+        # line separates paragraphs (段落间遇空行自动切块). Consecutive blank
+        # lines collapse to a single boundary — they never create empty blocks.
+        # Heading/quote/code/table lines each become their own typed block the
+        # same way, verbatim. blocksToMarkdown then re-emits every block, so
+        # block count and all content lines survive the round trip. Pinned
+        # in-page on scratch markdown via /src/factory.js (no vault involved).
+        # No driver.get here: this section runs on the already-unlocked app
+        # page, and a reload would drop the session and hide btn-lock for the
+        # lock section that follows.
+        blocksplit = driver.execute_async_script("""
+          const cb = arguments[arguments.length - 1];
+          (async () => {
+            const { textToBlocks, blocksToMarkdown } = await import('/src/factory.js');
+            const two = textToBlocks('first\\n\\nsecond');
+            const manyBlank = textToBlocks('a\\n\\n\\n\\nb');
+            const lone = textToBlocks('lone line');
+            const blanksOnly = textToBlocks('  \\n  \\n');
+            const mix = textToBlocks(
+              'p1\\n\\np2\\n\\n# H\\n\\n> q\\n\\n```\\ncode\\n```\\n\\n| a | b |');
+            const rt = blocksToMarkdown(mix);
+            return cb({
+              twoTypes: two.map((b) => b.type),
+              twoTexts: two.map((b) => b.text),
+              manyBlankCount: manyBlank.length,
+              manyBlankTypes: manyBlank.map((b) => b.type),
+              blanksOnlyCount: blanksOnly.length,
+              loneCount: lone.length,
+              loneType: (lone[0] || {}).type,
+              mixTypes: mix.map((b) => b.type + ':' + b.text.split('\\n')[0]),
+              rtLineCount: rt.split('\\n').length,
+              rtKeeps: ['p1', 'p2', '# H', '> q', 'code', '| a | b |']
+                .every((s) => rt.includes(s)),
+              rtParaJoin: rt.split('\\n').slice(0, 2).join('#'),
+            });
+          })().catch((e) => cb({ error: String(e) }));
+        """)
+        bs = json.loads(json.dumps(blocksplit))
+        check("block parse: blank-line-separated paragraphs auto-split into "
+              "separate paragraph blocks (设计说明书 3.8 段落间遇空行自动切块)",
+              bs.get("twoTypes") == ["paragraph", "paragraph"] and
+              bs.get("twoTexts") == ["first", "second"],
+              "types=%s texts=%s" % (bs.get("twoTypes"), bs.get("twoTexts")))
+        check("block parse: consecutive blank lines collapse to a single "
+              "boundary — no empty blocks ever (设计说明书 3.8 按行扫描)",
+              bs.get("manyBlankCount") == 2 and
+              bs.get("manyBlankTypes") == ["paragraph", "paragraph"] and
+              bs.get("blanksOnlyCount") == 0,
+              "count=%s types=%s blanks-only=%s" %
+              (bs.get("manyBlankCount"), bs.get("manyBlankTypes"),
+               bs.get("blanksOnlyCount")))
+        check("block parse: heading/quote/code/table lines each become their "
+              "own typed block, verbatim (设计说明书 3.8 按类分块)",
+              bs.get("mixTypes") == ["paragraph:p1", "paragraph:p2",
+                                     "heading:# H", "quote:> q",
+                                     "code:```", "table:| a | b |"],
+              "types=%s" % (bs.get("mixTypes"),))
+        check("block parse: a single-line text stays one paragraph block "
+              "(设计说明书 3.8 其余为 paragraph)",
+              bs.get("loneCount") == 1 and bs.get("loneType") == "paragraph",
+              "count=%s type=%s" % (bs.get("loneCount"), bs.get("loneType")))
+        check("block parse: blocksToMarkdown re-emits every block — all content "
+              "lines survive the round trip (设计说明书 3.8 blocksToMarkdown)",
+              bs.get("rtLineCount") > 0 and bs.get("rtKeeps") is True and
+              bs.get("rtParaJoin") == "p1#p2",
+              "lines=%s keeps=%s join=%s" %
+              (bs.get("rtLineCount"), bs.get("rtKeeps"), bs.get("rtParaJoin")))
+
         # ---- FAQ Q1 + 3.1 安全提示: no recovery, and nothing recoverable is
         # stored (manual 5.3 Q1: "按设计无法找回。主密码为唯一解密凭据，系统不
         # 保存任何可恢复信息"; 3.1: "系统不会也不能提供找回功能"). Two
