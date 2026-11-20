@@ -208,4 +208,7 @@ falls back to the snap's inner binary automatically.
 
 ## License
 
-MIT.
+Dual-licensed: **GNU AGPL-3.0** (open source) + a commercial use
+authorization for profit-making deployments. Full AGPL-3.0 text is in
+`LICENSE`; commercial terms and contact are in `COMMERCIAL-LICENSE.md`.
+Copyright (c) 2026 许达 (Xu Da) / 中国移动研究院.
